@@ -29,6 +29,8 @@ const DEFAULT_DB = {
     hashtags: '',              // appended disclosure/hashtags
     language: 'English',
     tone: 'Friendly',
+    geminiApiKey: '',          // set here from the UI (or via .env)
+    geminiModel: '',           // e.g. gemini-2.5-flash (blank = default)
   },
   pinterest: {
     connected: false,

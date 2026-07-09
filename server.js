@@ -4,12 +4,12 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-import { config, aiEnabled, pinterestConfigured } from './src/config.js';
+import { config, pinterestConfigured } from './src/config.js';
 import {
   loadDb, getBoards, getSettings, updateSettings, addPin, updatePin,
   deletePin, getPins, getPinterest, setPinterest,
 } from './src/store.js';
-import { generateForImage } from './src/aiEngine.js';
+import { generateForImage, aiEnabled } from './src/aiEngine.js';
 import { buildSchedule, startScheduler } from './src/scheduler.js';
 import { pinsToCsv } from './src/csvExport.js';
 import {
@@ -57,7 +57,12 @@ app.get('/api/state', (req, res) => {
       const p = getPinterest();
       return { connected: p.connected, account: p.account, boardCount: (p.boards || []).length };
     })(),
-    settings: getSettings(),
+    settings: (() => {
+      const s = { ...getSettings() };
+      s.geminiKeySet = Boolean(s.geminiApiKey);
+      delete s.geminiApiKey; // never expose the raw key to the client
+      return s;
+    })(),
     boards: getBoards(),
     pins,
     counts: pins.reduce((acc, p) => ((acc[p.status] = (acc[p.status] || 0) + 1), acc), {}),
@@ -94,9 +99,11 @@ app.delete('/api/boards/:id', (req, res) => {
 
 // --- settings ---
 app.post('/api/settings', (req, res) => {
-  const allowed = ['destinationUrls', 'pinsPerDay', 'postingHours', 'startDate', 'defaultNiche', 'hashtags', 'language', 'tone'];
+  const allowed = ['destinationUrls', 'pinsPerDay', 'postingHours', 'startDate', 'defaultNiche', 'hashtags', 'language', 'tone', 'geminiApiKey', 'geminiModel'];
   const patch = {};
   for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
+  // Don't wipe a saved key when the UI sends an empty field (key is masked there).
+  if (patch.geminiApiKey === '') delete patch.geminiApiKey;
   res.json(updateSettings(patch));
 });
 

@@ -62,6 +62,11 @@ function renderSettings() {
   $('#postingHours').value = (s.postingHours || []).join(',');
   $('#startDate').value = s.startDate ? s.startDate.slice(0, 10) : '';
   $('#hashtags').value = s.hashtags || '';
+  $('#geminiModel').value = s.geminiModel || '';
+  // key is masked: show a saved indicator, leave field empty so it isn't overwritten
+  const keyField = $('#geminiApiKey');
+  keyField.value = '';
+  keyField.placeholder = s.geminiKeySet ? '•••••••••• (saved — type to replace)' : 'Paste your Gemini API key here';
 }
 
 function renderBoards() {
@@ -140,10 +145,12 @@ async function saveSettings() {
     postingHours: $('#postingHours').value.split(',').map((s) => Number(s.trim())).filter((n) => !isNaN(n)),
     startDate: $('#startDate').value ? new Date($('#startDate').value).toISOString() : null,
     hashtags: $('#hashtags').value,
+    geminiApiKey: $('#geminiApiKey').value.trim(), // empty = keep existing (masked)
+    geminiModel: $('#geminiModel').value.trim(),
   };
   await api('/api/settings', { method: 'POST', body: patch });
   await refresh();
-  toast('Settings saved', 'ok');
+  toast(patch.geminiApiKey ? 'Settings saved — AI key updated' : 'Settings saved', 'ok');
 }
 
 async function addBoard() {

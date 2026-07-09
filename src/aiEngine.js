@@ -4,7 +4,24 @@
 // Uses Google Gemini (vision) when GEMINI_API_KEY is set. Otherwise falls
 // back to a built-in template generator so the app is fully usable offline.
 import fs from 'fs';
-import { config, aiEnabled } from './config.js';
+import { config } from './config.js';
+import { getSettings } from './store.js';
+
+// Resolve Gemini credentials from the environment (.env) first, then from
+// the in-app settings (entered in the UI and stored in db.json).
+function resolveCreds() {
+  const settings = getSettings();
+  const apiKey = config.gemini.apiKey || settings.geminiApiKey || '';
+  const model = process.env.GEMINI_MODEL
+    ? config.gemini.model
+    : (settings.geminiModel || config.gemini.model || 'gemini-2.5-flash');
+  return { apiKey, model };
+}
+
+// True when a Gemini API key is available from env OR the UI settings.
+export function aiEnabled() {
+  return Boolean(resolveCreds().apiKey);
+}
 
 const POWER_WORDS = [
   'Easy', 'Quick', 'Simple', 'Best', 'Ultimate', 'Secret', 'Proven',
@@ -60,9 +77,10 @@ function extractJson(text) {
 }
 
 async function callGemini(imagePath, mime, boards, ctx) {
+  const { apiKey, model } = resolveCreds();
   const prompt = buildPrompt(boards, ctx);
   const base64 = fs.readFileSync(imagePath).toString('base64');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.gemini.model}:generateContent?key=${config.gemini.apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const body = {
     contents: [
