@@ -1,0 +1,28 @@
+{
+  "name": "pinpilot",
+  "version": "1.0.0",
+  "description": "PinPilot — upload your images and let AI write SEO titles & descriptions, pick the right board, schedule, and export/publish to Pinterest.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "pinterest",
+    "pins",
+    "scheduler",
+    "ai",
+    "seo",
+    "gemini",
+    "affiliate"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^2.0.1"
+  }
+}

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PinPilot — AI Pinterest Automation</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">📌</span>
+      <div>
+        <h1>PinPilot</h1>
+        <p>Upload images → AI writes titles, descriptions & picks boards → schedule → export/publish</p>
+      </div>
+    </div>
+    <div class="status-badges">
+      <span id="badge-ai" class="badge">AI: …</span>
+      <span id="badge-pinterest" class="badge">Pinterest: …</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- STEP 1: Settings -->
+    <section class="card" id="settings-card">
+      <div class="card-head">
+        <h2><span class="step">1</span> Campaign settings</h2>
+        <button class="ghost" data-toggle="settings-body">Show / hide</button>
+      </div>
+      <div class="card-body" id="settings-body">
+        <div class="grid">
+          <label class="field wide">
+            <span>Destination URLs <small>(one per line — pins link here, round-robin)</small></span>
+            <textarea id="destinationUrls" rows="3" placeholder="https://yoursite.com/best-home-workouts&#10;https://yoursite.com/high-protein-meal-prep"></textarea>
+          </label>
+          <label class="field">
+            <span>Niche</span>
+            <select id="defaultNiche">
+              <option value="auto">Auto (detect per image)</option>
+              <option value="fitness">Health &amp; Fitness</option>
+              <option value="recipes">Recipes</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Tone</span>
+            <select id="tone">
+              <option>Friendly</option>
+              <option>Inspirational</option>
+              <option>Bold</option>
+              <option>Neutral</option>
+              <option>Playful</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Language</span>
+            <input id="language" type="text" value="English" />
+          </label>
+          <label class="field">
+            <span>Pins per day</span>
+            <input id="pinsPerDay" type="number" min="1" max="50" value="15" />
+          </label>
+          <label class="field">
+            <span>Posting hours <small>(comma-separated, 24h)</small></span>
+            <input id="postingHours" type="text" value="7,10,13,16,19,21" />
+          </label>
+          <label class="field">
+            <span>Start date <small>(blank = tomorrow)</small></span>
+            <input id="startDate" type="date" />
+          </label>
+          <label class="field wide">
+            <span>Pinned hashtags / disclosure <small>(appended to every description)</small></span>
+            <input id="hashtags" type="text" placeholder="#ad #affiliate | This post may contain affiliate links." />
+          </label>
+        </div>
+        <button class="primary" id="save-settings">Save settings</button>
+      </div>
+    </section>
+
+    <!-- STEP 2: Boards -->
+    <section class="card">
+      <div class="card-head">
+        <h2><span class="step">2</span> Boards <small id="board-count"></small></h2>
+        <button class="ghost" data-toggle="boards-body">Show / hide</button>
+      </div>
+      <div class="card-body" id="boards-body">
+        <p class="hint">The AI picks one of these boards for each image based on what it shows. Add or remove to match your account.</p>
+        <div id="boards-list" class="chips"></div>
+        <div class="add-board">
+          <input id="new-board-name" placeholder="Board name (e.g. Meal Prep Ideas)" />
+          <select id="new-board-niche">
+            <option value="fitness">fitness</option>
+            <option value="recipes">recipes</option>
+            <option value="auto">auto</option>
+          </select>
+          <input id="new-board-keywords" placeholder="keywords, comma, separated" />
+          <button class="secondary" id="add-board">Add board</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 3: Upload -->
+    <section class="card">
+      <div class="card-head">
+        <h2><span class="step">3</span> Upload your images</h2>
+      </div>
+      <div class="card-body">
+        <div id="dropzone" class="dropzone">
+          <input type="file" id="file-input" accept="image/*" multiple hidden />
+          <div class="dz-inner">
+            <span class="dz-icon">🖼️</span>
+            <p><strong>Drop images here</strong> or <button class="link" id="browse-btn">browse</button></p>
+            <small>You can select hundreds at once (JPG / PNG / WEBP).</small>
+          </div>
+        </div>
+        <div id="upload-progress" class="progress hidden"><div class="bar"></div></div>
+      </div>
+    </section>
+
+    <!-- STEP 4: Generate + review -->
+    <section class="card">
+      <div class="card-head">
+        <h2><span class="step">4</span> Generate &amp; review pins</h2>
+      </div>
+      <div class="card-body">
+        <div class="toolbar">
+          <button class="primary" id="generate-all">✨ Generate AI content for new pins</button>
+          <button class="secondary" id="build-schedule">🗓️ Build schedule</button>
+          <a class="secondary" id="export-csv" href="/api/export.csv">⬇️ Export Pinterest CSV</a>
+          <span class="spacer"></span>
+          <span id="counts" class="counts"></span>
+        </div>
+        <div id="pins-grid" class="pins-grid"></div>
+        <p id="empty-state" class="empty">No pins yet. Upload some images to get started.</p>
+      </div>
+    </section>
+
+    <!-- STEP 5: Publish -->
+    <section class="card">
+      <div class="card-head">
+        <h2><span class="step">5</span> Publish to Pinterest</h2>
+      </div>
+      <div class="card-body">
+        <div id="pinterest-panel">
+          <p class="hint">
+            <strong>Stage 1 (works now):</strong> use <em>Export Pinterest CSV</em> above and upload it via Pinterest's free
+            <em>Bulk create Pins</em> tool (up to 200 at a time).<br />
+            <strong>Stage 2 (auto-publish):</strong> connect your Pinterest account to publish &amp; schedule directly through the API
+            (requires Pinterest Standard API access).
+          </p>
+          <div class="toolbar">
+            <a class="primary" id="connect-pinterest" href="/auth/pinterest">🔗 Connect Pinterest</a>
+            <button class="secondary hidden" id="sync-boards">🔄 Sync boards</button>
+            <button class="ghost hidden" id="disconnect-pinterest">Disconnect</button>
+            <span id="pinterest-account" class="counts"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- Edit modal -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <button class="modal-close" id="modal-close">✕</button>
+      <div class="modal-content" id="modal-content"></div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
