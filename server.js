@@ -104,7 +104,7 @@ app.delete('/api/boards/:id', (req, res) => {
 
 // --- settings ---
 app.post('/api/settings', (req, res) => {
-  const allowed = ['destinationUrls', 'pinsPerDay', 'postingHours', 'startDate', 'defaultNiche', 'hashtags', 'language', 'tone', 'geminiApiKey', 'geminiModel'];
+  const allowed = ['destinationUrls', 'pinsPerDay', 'postingHours', 'startDate', 'defaultNiche', 'hashtags', 'language', 'tone', 'geminiApiKey', 'geminiModel', 'aiDelaySeconds'];
   const patch = {};
   for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
   // Don't wipe a saved key when the UI sends an empty field (key is masked there).
@@ -144,7 +144,6 @@ function assignLink(index) {
   return urls[index % urls.length];
 }
 
-const AI_THROTTLE_MS = 4500; // ~13 requests/min — safe for Gemini free tier
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.post('/api/generate', async (req, res) => {
@@ -188,8 +187,9 @@ app.post('/api/generate', async (req, res) => {
       });
       done++;
       if (meta._dailyQuota) break; // daily quota exhausted — stop, try again tomorrow
-      // Throttle between real AI calls to stay under the per-minute limit.
-      if (aiEnabled() && i < selected.length - 1) await sleep(AI_THROTTLE_MS);
+      // Throttle between real AI calls (configurable; lower it if billing is enabled).
+      const delayMs = Math.max(0, (Number(settings.aiDelaySeconds ?? 4.5)) * 1000);
+      if (aiEnabled() && delayMs && i < selected.length - 1) await sleep(delayMs);
     } catch (e) {
       updatePin(pin.id, { status: 'error', error: e.message });
     }

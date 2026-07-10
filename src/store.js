@@ -31,6 +31,7 @@ const DEFAULT_DB = {
     tone: 'Friendly',
     geminiApiKey: '',          // set here from the UI (or via .env)
     geminiModel: '',           // e.g. gemini-2.5-flash (blank = default)
+    aiDelaySeconds: 4.5,       // pause between AI calls (lower = faster; ~0.3 if billing enabled)
   },
   pinterest: {
     connected: false,

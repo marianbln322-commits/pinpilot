@@ -63,6 +63,7 @@ function renderSettings() {
   $('#startDate').value = s.startDate ? s.startDate.slice(0, 10) : '';
   $('#hashtags').value = s.hashtags || '';
   $('#geminiModel').value = s.geminiModel || '';
+  $('#aiDelaySeconds').value = s.aiDelaySeconds ?? 4.5;
   // key is masked: show a saved indicator, leave field empty so it isn't overwritten
   const keyField = $('#geminiApiKey');
   keyField.value = '';
@@ -148,6 +149,7 @@ async function saveSettings() {
     hashtags: $('#hashtags').value,
     geminiApiKey: $('#geminiApiKey').value.trim(), // empty = keep existing (masked)
     geminiModel: $('#geminiModel').value.trim(),
+    aiDelaySeconds: Number($('#aiDelaySeconds').value) || 0,
   };
   await api('/api/settings', { method: 'POST', body: patch });
   await refresh();
