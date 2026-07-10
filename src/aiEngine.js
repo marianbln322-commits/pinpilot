@@ -46,17 +46,53 @@ function pickModel(models, preferred) {
   return find('flash-lite') || find('2.5-flash') || find('flash-latest') || find('flash') || find('pro') || models[0];
 }
 
-// Verify the key and report available generate-capable models.
+// Do a tiny real generateContent call to see if generation actually works
+// (ListModels can succeed while generation is blocked by quota/billing).
+async function probeGenerate(apiKey, model) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: 'Reply with the single word: ok' }] }],
+      generationConfig: { maxOutputTokens: 5 },
+    }),
+  });
+  if (res.ok) return { ok: true, status: 200 };
+  const txt = (await res.text()).slice(0, 300);
+  return { ok: false, status: res.status, error: `${res.status}: ${txt}` };
+}
+
+// Verify the key AND that real generation works; report the working model.
 export async function testKey() {
   const { apiKey, model } = resolveCreds();
   if (!apiKey) return { ok: false, error: 'No API key saved. Paste your Gemini key and click Save settings.' };
+  let models = [];
   try {
-    const models = await listGenerateModels(apiKey);
-    if (!models.length) return { ok: false, error: 'Key works but no usable models found.', models: [] };
-    return { ok: true, models, chosen: pickModel(models, model || cachedWorkingModel) };
+    models = await listGenerateModels(apiKey);
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, stage: 'list', error: e.message };
   }
+  if (!models.length) return { ok: false, stage: 'list', error: 'Key works but no usable models found.', models: [] };
+
+  // Try generating with the preferred model, then a couple of alternatives.
+  const candidates = [];
+  const preferred = pickModel(models, model || cachedWorkingModel);
+  if (preferred) candidates.push(preferred);
+  for (const m of ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest']) {
+    if (models.includes(m) && !candidates.includes(m)) candidates.push(m);
+  }
+  let lastError = '';
+  for (const m of candidates) {
+    const probe = await probeGenerate(apiKey, m);
+    if (probe.ok) {
+      cachedWorkingModel = m;
+      return { ok: true, models, chosen: m, generationWorks: true };
+    }
+    lastError = probe.error;
+    if (probe.status !== 404) break; // 429/403 etc. won't be fixed by another model
+  }
+  return { ok: false, stage: 'generate', models, chosen: candidates[0], generationWorks: false, error: lastError };
 }
 
 const POWER_WORDS = [

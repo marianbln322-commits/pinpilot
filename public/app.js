@@ -164,10 +164,14 @@ async function testAi() {
     await saveSettingsSilent();
     const r = await api('/api/ai-test');
     if (r.ok) {
-      out.textContent = `✓ Key works — ${r.models.length} models available. Recommended: ${r.chosen}`;
+      out.textContent = `✓ Key + generation work — model: ${r.chosen} (${r.models.length} models available)`;
       out.style.color = '#1ea672';
       if (r.chosen) $('#geminiModel').value = r.chosen;
-      toast(`AI key works! Using model: ${r.chosen}. Click Save settings to keep it.`, 'ok');
+      toast(`AI works! Real generation succeeded with ${r.chosen}. Click Save settings.`, 'ok');
+    } else if (r.stage === 'generate') {
+      out.textContent = `✗ Key is valid, but GENERATION is blocked: ${r.error}`;
+      out.style.color = '#d94b4b';
+      toast('Generation blocked — see the reason next to the button. Likely quota/billing.', 'err');
     } else {
       out.textContent = `✗ ${r.error}`;
       out.style.color = '#d94b4b';
@@ -250,7 +254,7 @@ async function runBatched(selector, buttons) {
       await refresh();
 
       if (r.dailyQuota) {
-        toast(`Daily AI limit reached. Done today: ${totalAi} with AI. Come back tomorrow and click again — it resumes where it left off.`, 'err');
+        toast(`Stopped: quota limit hit (done ${totalAi} with AI). Reason: ${lastError || 'daily quota'}`, 'err');
         return;
       }
       if (r.generated === 0) break;                 // nothing left to process
