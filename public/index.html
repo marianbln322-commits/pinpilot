@@ -87,6 +87,14 @@
             <span>Delay between AI calls (sec) <small>(4.5 = free tier · 0.3 if billing enabled)</small></span>
             <input id="aiDelaySeconds" type="number" min="0" step="0.1" value="4.5" />
           </label>
+          <label class="field">
+            <span>Pinterest App ID <small>(only for auto-connecting accounts)</small></span>
+            <input id="pinterestAppId" type="text" placeholder="e.g. 1508123..." autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>Pinterest App Secret</span>
+            <input id="pinterestAppSecret" type="password" placeholder="Paste your app secret" autocomplete="off" />
+          </label>
         </div>
         <div class="toolbar" style="margin-bottom:0">
           <button class="primary" id="save-settings">Save settings</button>
@@ -177,16 +185,16 @@
         <div id="pinterest-panel">
           <p class="hint">
             <strong>Stage 1 (works now):</strong> use <em>Export Pinterest CSV</em> above and upload it via Pinterest's free
-            <em>Bulk create Pins</em> tool (up to 200 at a time).<br />
-            <strong>Stage 2 (auto-publish):</strong> connect your Pinterest account to publish &amp; schedule directly through the API
-            (requires Pinterest Standard API access).
+            <em>Bulk create Pins</em> tool.<br />
+            <strong>Stage 2 (auto boards):</strong> connect your Pinterest account(s) to pull your real boards automatically.
+            The AI then picks from <em>your</em> boards. Add your Pinterest App ID &amp; Secret in Settings first.
           </p>
           <div class="toolbar">
-            <a class="primary" id="connect-pinterest" href="/auth/pinterest">🔗 Connect Pinterest</a>
-            <button class="secondary hidden" id="sync-boards">🔄 Sync boards</button>
-            <button class="ghost hidden" id="disconnect-pinterest">Disconnect</button>
-            <span id="pinterest-account" class="counts"></span>
+            <a class="primary" id="connect-pinterest" href="/auth/pinterest">🔗 Connect a Pinterest account</a>
+            <button class="secondary" id="sync-all">🔄 Refresh all boards</button>
+            <span id="pinterest-status" class="counts"></span>
           </div>
+          <div id="accounts-list"></div>
         </div>
       </div>
     </section>

@@ -32,15 +32,12 @@ const DEFAULT_DB = {
     geminiApiKey: '',          // set here from the UI (or via .env)
     geminiModel: '',           // e.g. gemini-2.5-flash (blank = default)
     aiDelaySeconds: 4.5,       // pause between AI calls (lower = faster; ~0.3 if billing enabled)
+    pinterestAppId: '',        // Pinterest developer app id (or via .env)
+    pinterestAppSecret: '',    // Pinterest developer app secret (or via .env)
   },
-  pinterest: {
-    connected: false,
-    account: null,
-    accessToken: null,
-    refreshToken: null,
-    expiresAt: null,
-    boards: [], // fetched live boards from Pinterest (id + name)
-  },
+  // Multiple connected Pinterest accounts. Each: { id, username, accountType,
+  // accessToken, refreshToken, expiresAt, boards: [{id,name}], connectedAt }.
+  accounts: [],
 };
 
 let db = null;
@@ -59,7 +56,21 @@ export function loadDb() {
       db = { ...structuredClone(DEFAULT_DB), ...raw };
       // deep-merge settings so new defaults appear
       db.settings = { ...DEFAULT_DB.settings, ...(raw.settings || {}) };
-      db.pinterest = { ...DEFAULT_DB.pinterest, ...(raw.pinterest || {}) };
+      db.accounts = Array.isArray(raw.accounts) ? raw.accounts : [];
+      // migrate an old single-account "pinterest" object into accounts[]
+      if (!db.accounts.length && raw.pinterest && raw.pinterest.connected && raw.pinterest.account) {
+        db.accounts.push({
+          id: raw.pinterest.account.username || 'account',
+          username: raw.pinterest.account.username || 'account',
+          accountType: raw.pinterest.account.type || null,
+          accessToken: raw.pinterest.accessToken || null,
+          refreshToken: raw.pinterest.refreshToken || null,
+          expiresAt: raw.pinterest.expiresAt || null,
+          boards: raw.pinterest.boards || [],
+          connectedAt: new Date().toISOString(),
+        });
+      }
+      delete db.pinterest;
       if (!Array.isArray(db.boards) || db.boards.length === 0) db.boards = DEFAULT_BOARDS;
     } catch (e) {
       console.error('Failed to parse db.json, starting fresh:', e.message);
@@ -145,13 +156,63 @@ export function setBoards(boards) {
   return d.boards;
 }
 
-export function setPinterest(patch) {
-  const d = getDb();
-  d.pinterest = { ...d.pinterest, ...patch };
-  saveNow();
-  return d.pinterest;
+// --- Pinterest accounts (multi-account) ---
+export function getAccounts() {
+  return getDb().accounts || (getDb().accounts = []);
 }
 
-export function getPinterest() {
-  return getDb().pinterest;
+export function upsertAccount(acc) {
+  const accts = getAccounts();
+  const idx = accts.findIndex((a) => a.id === acc.id);
+  if (idx === -1) accts.push(acc);
+  else accts[idx] = { ...accts[idx], ...acc };
+  saveNow();
+  return acc;
+}
+
+export function updateAccount(id, patch) {
+  const acc = getAccounts().find((a) => a.id === id);
+  if (!acc) return null;
+  Object.assign(acc, patch);
+  saveNow();
+  return acc;
+}
+
+export function removeAccount(id) {
+  const accts = getAccounts();
+  const idx = accts.findIndex((a) => a.id === id);
+  if (idx === -1) return false;
+  accts.splice(idx, 1);
+  saveNow();
+  return true;
+}
+
+export function setAccountBoards(id, boards) {
+  return updateAccount(id, { boards });
+}
+
+// The board pool the AI chooses from: live boards from connected accounts
+// (if any), otherwise the manually-managed board list.
+export function effectiveBoards() {
+  const accts = getAccounts();
+  const withBoards = accts.filter((a) => (a.boards || []).length);
+  if (withBoards.length) {
+    const out = [];
+    for (const a of accts) {
+      for (const b of a.boards || []) {
+        out.push({
+          id: `${a.id}::${b.id}`,
+          name: a.username ? `${b.name}` : b.name,
+          displayName: withBoards.length > 1 ? `${b.name}  ·  @${a.username}` : b.name,
+          niche: 'auto',
+          keywords: String(b.name).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean),
+          accountId: a.id,
+          accountUsername: a.username,
+          pinterestBoardId: b.id,
+        });
+      }
+    }
+    return out;
+  }
+  return getDb().boards;
 }

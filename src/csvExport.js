@@ -2,7 +2,7 @@
 // Columns match Pinterest's bulk upload template:
 // Title, Media URL, Pinterest board, Thumbnail, Description, Link, Publish date, Keywords
 import { config } from './config.js';
-import { getBoards } from './store.js';
+import { effectiveBoards } from './store.js';
 
 function csvEscape(value) {
   const s = value == null ? '' : String(value);
@@ -30,8 +30,8 @@ function formatPublishDate(iso) {
 }
 
 export function pinsToCsv(pins, reqBaseUrl) {
-  const boards = getBoards();
-  const boardName = (id) => boards.find((b) => b.id === id)?.name || '';
+  const boards = effectiveBoards();
+  const boardName = (pin) => pin.boardName || boards.find((b) => b.id === pin.boardId)?.name || '';
 
   const header = ['Title', 'Media URL', 'Pinterest board', 'Thumbnail', 'Description', 'Link', 'Publish date', 'Keywords'];
   const rows = [header.join(',')];
@@ -40,7 +40,7 @@ export function pinsToCsv(pins, reqBaseUrl) {
     const row = [
       csvEscape(pin.title),
       csvEscape(mediaUrl(pin, reqBaseUrl)),
-      csvEscape(boardName(pin.boardId)),
+      csvEscape(boardName(pin)),
       '', // Thumbnail (videos only)
       csvEscape(pin.description),
       csvEscape(pin.link || ''),

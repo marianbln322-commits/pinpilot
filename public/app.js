@@ -39,17 +39,38 @@ function renderBadges() {
   ai.className = `badge ${state.aiEnabled ? 'ok' : 'off'}`;
 
   const p = $('#badge-pinterest');
-  const connected = state.pinterest?.connected;
-  p.textContent = `Pinterest: ${connected ? (state.pinterest.account?.username || 'connected') + ' ✓' : (state.pinterestConfigured ? 'not connected' : 'CSV mode')}`;
-  p.className = `badge ${connected ? 'ok' : 'off'}`;
+  const accts = state.accounts || [];
+  if (accts.length) {
+    p.textContent = `Pinterest: ${accts.length} account${accts.length > 1 ? 's' : ''} ✓`;
+    p.className = 'badge ok';
+  } else {
+    p.textContent = `Pinterest: ${state.pinterestConfigured ? 'not connected' : 'CSV mode'}`;
+    p.className = 'badge off';
+  }
+}
 
-  // pinterest panel buttons
-  $('#sync-boards').classList.toggle('hidden', !connected);
-  $('#disconnect-pinterest').classList.toggle('hidden', !connected);
-  $('#connect-pinterest').classList.toggle('hidden', connected);
-  $('#pinterest-account').textContent = connected
-    ? `Connected as @${state.pinterest.account?.username || '—'} · ${state.pinterest.boardCount || 0} live boards`
-    : '';
+function renderAccounts() {
+  const list = $('#accounts-list');
+  const status = $('#pinterest-status');
+  if (!list) return;
+  const accts = state.accounts || [];
+  if (!accts.length) {
+    list.innerHTML = '';
+    status.textContent = state.pinterestConfigured
+      ? 'No accounts connected yet — click "Connect a Pinterest account".'
+      : 'Add your Pinterest App ID & Secret in Settings to enable connecting.';
+    return;
+  }
+  status.textContent = `${accts.length} connected · boards are pulled from Pinterest`;
+  list.innerHTML = accts.map((a) => `
+    <div class="chip" style="margin:4px 6px 4px 0">
+      <span>@${a.username}</span>
+      <span class="niche">${a.boardCount} boards</span>
+      <button data-sync="${a.id}" title="Refresh this account's boards">🔄</button>
+      <button data-del-acc="${a.id}" title="Disconnect">✕</button>
+    </div>`).join('');
+  list.querySelectorAll('[data-sync]').forEach((b) => (b.onclick = () => syncAccount(b.dataset.sync)));
+  list.querySelectorAll('[data-del-acc]').forEach((b) => (b.onclick = () => disconnectAccount(b.dataset.delAcc)));
 }
 
 function renderSettings() {
@@ -68,17 +89,27 @@ function renderSettings() {
   const keyField = $('#geminiApiKey');
   keyField.value = '';
   keyField.placeholder = s.geminiKeySet ? '•••••••••• (saved — type to replace)' : 'Paste your Gemini API key here';
+  // Pinterest app credentials
+  $('#pinterestAppId').value = s.pinterestAppId || '';
+  const secField = $('#pinterestAppSecret');
+  secField.value = '';
+  secField.placeholder = s.pinterestSecretSet ? '•••••••••• (saved — type to replace)' : 'Paste your app secret';
 }
 
 function renderBoards() {
-  $('#board-count').textContent = `(${state.boards.length})`;
+  const fromPinterest = state.boardsSource === 'pinterest';
+  $('#board-count').textContent = `(${state.boards.length}${fromPinterest ? ' · from your Pinterest' : ''})`;
   const list = $('#boards-list');
   list.innerHTML = '';
   state.boards.forEach((b) => {
     const el = document.createElement('div');
     el.className = 'chip';
-    el.innerHTML = `<span>${b.name}</span><span class="niche">${b.niche}</span><button title="Remove" data-id="${b.id}">✕</button>`;
-    el.querySelector('button').onclick = async () => {
+    const label = b.displayName || b.name;
+    el.innerHTML = fromPinterest
+      ? `<span>${label}</span><span class="niche">pinterest</span>`
+      : `<span>${label}</span><span class="niche">${b.niche}</span><button title="Remove" data-id="${b.id}">✕</button>`;
+    const btn = el.querySelector('button');
+    if (btn) btn.onclick = async () => {
       await api(`/api/boards/${b.id}`, { method: 'DELETE' });
       await refresh();
       toast('Board removed');
@@ -128,6 +159,7 @@ function renderAll() {
   renderBadges();
   renderSettings();
   renderBoards();
+  renderAccounts();
   renderPins();
 }
 
@@ -150,6 +182,8 @@ async function saveSettings() {
     geminiApiKey: $('#geminiApiKey').value.trim(), // empty = keep existing (masked)
     geminiModel: $('#geminiModel').value.trim(),
     aiDelaySeconds: Number($('#aiDelaySeconds').value) || 0,
+    pinterestAppId: $('#pinterestAppId').value.trim(),
+    pinterestAppSecret: $('#pinterestAppSecret').value.trim(), // empty = keep existing (masked)
   };
   await api('/api/settings', { method: 'POST', body: patch });
   await refresh();
@@ -227,6 +261,50 @@ async function clearBoards() {
   await api('/api/boards/import', { method: 'POST', body: { names: [], replace: true } });
   await refresh();
   toast('All boards cleared');
+}
+
+// --- Pinterest accounts ---
+async function connectPinterest(e) {
+  if (e) e.preventDefault();
+  // save any just-typed credentials first, then check config
+  await api('/api/settings', {
+    method: 'POST',
+    body: {
+      pinterestAppId: $('#pinterestAppId').value.trim(),
+      pinterestAppSecret: $('#pinterestAppSecret').value.trim(),
+    },
+  });
+  const st = await api('/api/state');
+  if (!st.pinterestConfigured) {
+    toast('Add your Pinterest App ID & Secret in Settings, then Save, before connecting.', 'err');
+    return;
+  }
+  location.href = '/auth/pinterest';
+}
+
+async function syncAccount(id) {
+  toast('Refreshing boards…');
+  try {
+    const r = await api(`/api/accounts/${id}/sync`, { method: 'POST', body: {} });
+    await refresh();
+    toast(`Refreshed ${r.boards.length} boards`, 'ok');
+  } catch (e) { toast('Refresh failed: ' + e.message, 'err'); }
+}
+
+async function disconnectAccount(id) {
+  if (!confirm('Disconnect this Pinterest account?')) return;
+  await api(`/api/accounts/${id}`, { method: 'DELETE' });
+  await refresh();
+  toast('Account disconnected');
+}
+
+async function syncAllBoardsUI() {
+  toast('Refreshing all boards…');
+  try {
+    await api('/api/accounts/sync-all', { method: 'POST', body: {} });
+    await refresh();
+    toast('Boards refreshed from Pinterest', 'ok');
+  } catch (e) { toast('Refresh failed: ' + e.message, 'err'); }
 }
 
 async function uploadFiles(files) {
@@ -412,17 +490,14 @@ function initEvents() {
   ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('drag'); }));
   dz.addEventListener('drop', (e) => uploadFiles(e.dataTransfer.files));
 
-  // pinterest
-  $('#sync-boards').onclick = async () => {
-    try { const r = await api('/api/pinterest/sync-boards', { method: 'POST', body: {} }); await refresh(); toast(`Synced ${r.boards.length} boards`, 'ok'); }
-    catch (e) { toast('Sync failed: ' + e.message, 'err'); }
-  };
-  $('#disconnect-pinterest').onclick = async () => { await api('/api/pinterest/disconnect', { method: 'POST', body: {} }); await refresh(); toast('Disconnected'); };
+  // pinterest accounts
+  $('#connect-pinterest').onclick = connectPinterest;
+  $('#sync-all').onclick = syncAllBoardsUI;
 
   // pinterest connect result banner
   const params = new URLSearchParams(location.search);
-  if (params.get('pinterest') === 'connected') toast('Pinterest connected!', 'ok');
-  if (params.get('pinterest') === 'error') toast('Pinterest connection failed', 'err');
+  if (params.get('pinterest') === 'connected') toast(`Connected @${params.get('user') || ''}! Boards imported.`, 'ok');
+  if (params.get('pinterest') === 'error') toast('Pinterest connection failed: ' + (params.get('msg') || ''), 'err');
 }
 
 initEvents();

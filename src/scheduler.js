@@ -1,7 +1,7 @@
 // Internal scheduler: spreads pins across days/hours and (Stage 2) publishes
 // due pins via the Pinterest API. Pinterest's API has no native "publish
 // later" for organic pins, so we queue and release them ourselves.
-import { getPins, getSettings, updatePin, getBoards, getPinterest } from './store.js';
+import { getPins, getSettings, updatePin, effectiveBoards, getAccounts } from './store.js';
 import { createPinOnPinterest } from './pinterestClient.js';
 
 /**
@@ -58,18 +58,18 @@ let timer = null;
  * Safe no-op when Pinterest isn't connected.
  */
 async function tick() {
-  const pinterest = getPinterest();
-  if (!pinterest.connected) return; // Stage 1: nothing to auto-publish
+  if (!getAccounts().length) return; // Stage 1: nothing to auto-publish
 
   const now = Date.now();
   const due = getPins().filter(
     (p) => p.status === 'scheduled' && p.scheduledAt && new Date(p.scheduledAt).getTime() <= now
   );
 
+  const boards = effectiveBoards();
   for (const pin of due) {
     try {
       updatePin(pin.id, { status: 'publishing' });
-      const board = getBoards().find((b) => b.id === pin.boardId);
+      const board = boards.find((b) => b.id === pin.boardId);
       const result = await createPinOnPinterest(pin, board);
       updatePin(pin.id, { status: 'published', pinterestPinId: result.id, publishedAt: new Date().toISOString(), error: null });
       console.log(`Published pin ${pin.id} -> Pinterest ${result.id}`);

@@ -4,16 +4,17 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-import { config, pinterestConfigured } from './src/config.js';
+import { config } from './src/config.js';
 import {
   loadDb, getBoards, getSettings, updateSettings, addPin, updatePin,
-  deletePin, getPins, getPinterest, setPinterest, setBoards,
+  deletePin, getPins, setBoards, getAccounts, removeAccount, effectiveBoards,
 } from './src/store.js';
 import { generateForImage, aiEnabled, testKey } from './src/aiEngine.js';
 import { buildSchedule, startScheduler } from './src/scheduler.js';
 import { pinsToCsv } from './src/csvExport.js';
 import {
-  getAuthUrl, exchangeCodeForToken, fetchUserAccount, fetchBoards, createPinOnPinterest,
+  getAuthUrl, isConfigured as pinterestConfigured, connectAccountFromCode,
+  syncAccountBoards, syncAllBoards, createPinOnPinterest,
 } from './src/pinterestClient.js';
 
 loadDb();
@@ -58,17 +59,19 @@ app.get('/api/state', (req, res) => {
   res.json({
     aiEnabled: aiEnabled(),
     pinterestConfigured: pinterestConfigured(),
-    pinterest: (() => {
-      const p = getPinterest();
-      return { connected: p.connected, account: p.account, boardCount: (p.boards || []).length };
-    })(),
+    accounts: getAccounts().map((a) => ({
+      id: a.id, username: a.username, accountType: a.accountType, boardCount: (a.boards || []).length,
+    })),
+    boardsSource: getAccounts().some((a) => (a.boards || []).length) ? 'pinterest' : 'manual',
     settings: (() => {
       const s = { ...getSettings() };
       s.geminiKeySet = Boolean(s.geminiApiKey);
-      delete s.geminiApiKey; // never expose the raw key to the client
+      s.pinterestSecretSet = Boolean(s.pinterestAppSecret);
+      delete s.geminiApiKey;        // never expose secrets to the client
+      delete s.pinterestAppSecret;
       return s;
     })(),
-    boards: getBoards(),
+    boards: effectiveBoards(),
     pins,
     counts: pins.reduce((acc, p) => ((acc[p.status] = (acc[p.status] || 0) + 1), acc), {}),
   });
@@ -123,11 +126,12 @@ app.delete('/api/boards/:id', (req, res) => {
 
 // --- settings ---
 app.post('/api/settings', (req, res) => {
-  const allowed = ['destinationUrls', 'pinsPerDay', 'postingHours', 'startDate', 'defaultNiche', 'hashtags', 'language', 'tone', 'geminiApiKey', 'geminiModel', 'aiDelaySeconds'];
+  const allowed = ['destinationUrls', 'pinsPerDay', 'postingHours', 'startDate', 'defaultNiche', 'hashtags', 'language', 'tone', 'geminiApiKey', 'geminiModel', 'aiDelaySeconds', 'pinterestAppId', 'pinterestAppSecret'];
   const patch = {};
   for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
-  // Don't wipe a saved key when the UI sends an empty field (key is masked there).
+  // Don't wipe saved secrets when the UI sends an empty (masked) field.
   if (patch.geminiApiKey === '') delete patch.geminiApiKey;
+  if (patch.pinterestAppSecret === '') delete patch.pinterestAppSecret;
   res.json(updateSettings(patch));
 });
 
@@ -166,7 +170,7 @@ function assignLink(index) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.post('/api/generate', async (req, res) => {
-  const boards = getBoards();
+  const boards = effectiveBoards();
   const settings = getSettings();
   const { ids, all, onlyMissing, limit } = req.body || {};
   // ids -> those pins; all/onlyMissing -> every editable pin; default -> new uploads.
@@ -193,12 +197,16 @@ app.post('/api/generate', async (req, res) => {
       if (meta._ai) aiUsed++; else fallback++;
       if (meta._error) lastError = meta._error;
       if (meta._dailyQuota) dailyQuota = true;
+      const chosen = boards.find((b) => b.id === meta.board_id) || null;
       updatePin(pin.id, {
         title: meta.title,
         description: (meta.description + hashtags).slice(0, 500),
         keywords: meta.keywords,
         altText: meta.alt_text,
         boardId: meta.board_id,
+        boardName: chosen ? chosen.name : '',
+        accountId: chosen ? chosen.accountId || null : null,
+        pinterestBoardId: chosen ? chosen.pinterestBoardId || null : null,
         link: pin.link || assignLink(linkIdx++),
         status: 'ready',
         generatedBy: meta._ai ? 'gemini' : 'template',
@@ -233,17 +241,22 @@ app.post('/api/pins/:id/regenerate', async (req, res) => {
   const pin = getPins().find((p) => p.id === req.params.id);
   if (!pin) return res.status(404).json({ error: 'not found' });
   try {
+    const boards = effectiveBoards();
     const meta = await generateForImage(
       { imagePath: path.join(config.paths.uploads, pin.filename), filename: pin.originalName, mime: pin.mime },
-      getBoards(),
+      boards,
       getSettings()
     );
+    const chosen = boards.find((b) => b.id === meta.board_id) || null;
     const updated = updatePin(pin.id, {
       title: meta.title,
       description: meta.description,
       keywords: meta.keywords,
       altText: meta.alt_text,
       boardId: meta.board_id,
+      boardName: chosen ? chosen.name : '',
+      accountId: chosen ? chosen.accountId || null : null,
+      pinterestBoardId: chosen ? chosen.pinterestBoardId || null : null,
       status: pin.status === 'uploaded' ? 'ready' : pin.status,
     });
     res.json(updated);
@@ -279,7 +292,7 @@ app.get('/api/export.csv', (req, res) => {
 
 // --- Pinterest OAuth (Stage 2) ---
 app.get('/auth/pinterest', (req, res) => {
-  if (!pinterestConfigured()) return res.status(400).send('Pinterest app not configured. Set PINTEREST_APP_ID and PINTEREST_APP_SECRET in .env');
+  if (!pinterestConfigured()) return res.status(400).send('Pinterest app not configured. Add your Pinterest App ID & Secret in Settings first.');
   res.redirect(getAuthUrl('pinpilot'));
 });
 
@@ -287,37 +300,37 @@ app.get('/auth/pinterest/callback', async (req, res) => {
   const { code, error } = req.query;
   if (error) return res.redirect('/?pinterest=error');
   try {
-    await exchangeCodeForToken(code);
-    await fetchUserAccount();
-    await fetchBoards();
-    res.redirect('/?pinterest=connected');
+    const acc = await connectAccountFromCode(code);
+    res.redirect(`/?pinterest=connected&user=${encodeURIComponent(acc.username)}`);
   } catch (e) {
     console.error('OAuth callback error:', e.message);
-    res.redirect('/?pinterest=error');
+    res.redirect(`/?pinterest=error&msg=${encodeURIComponent(e.message)}`);
   }
 });
 
-app.post('/api/pinterest/sync-boards', async (req, res) => {
-  try {
-    const boards = await fetchBoards();
-    res.json({ boards });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+// Re-sync boards for one account (after adding/renaming boards on Pinterest).
+app.post('/api/accounts/:id/sync', async (req, res) => {
+  try { res.json({ boards: await syncAccountBoards(req.params.id) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/pinterest/disconnect', (req, res) => {
-  setPinterest({ connected: false, account: null, accessToken: null, refreshToken: null, expiresAt: null, boards: [] });
-  res.json({ ok: true });
+// Refresh boards for ALL connected accounts at once.
+app.post('/api/accounts/sync-all', async (req, res) => {
+  try { res.json({ results: await syncAllBoards() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/accounts/:id', (req, res) => {
+  res.json({ removed: removeAccount(req.params.id) });
 });
 
 // Publish a pin immediately (Stage 2)
 app.post('/api/pins/:id/publish', async (req, res) => {
   const pin = getPins().find((p) => p.id === req.params.id);
   if (!pin) return res.status(404).json({ error: 'not found' });
-  if (!getPinterest().connected) return res.status(400).json({ error: 'Pinterest not connected' });
+  if (!getAccounts().length) return res.status(400).json({ error: 'No Pinterest account connected' });
   try {
-    const board = getBoards().find((b) => b.id === pin.boardId);
+    const board = effectiveBoards().find((b) => b.id === pin.boardId);
     const result = await createPinOnPinterest(pin, board);
     const updated = updatePin(pin.id, { status: 'published', pinterestPinId: result.id, publishedAt: new Date().toISOString() });
     res.json(updated);
