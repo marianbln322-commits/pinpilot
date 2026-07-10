@@ -14,7 +14,7 @@ function resolveCreds() {
   const apiKey = config.gemini.apiKey || settings.geminiApiKey || '';
   const model = process.env.GEMINI_MODEL
     ? config.gemini.model
-    : (settings.geminiModel || config.gemini.model || 'gemini-2.5-flash');
+    : (settings.geminiModel || config.gemini.model || 'gemini-3.1-flash-lite');
   return { apiKey, model };
 }
 
@@ -36,14 +36,30 @@ async function listGenerateModels(apiKey) {
     .map((m) => m.name.replace(/^models\//, ''));
 }
 
-// Choose the best available model (prefer cheap, high-quota flash variants).
+// Priority order: fastest, currently-available "lite" flash models first.
+// (Older 2.x/1.x names appear in the model list but 404 for new accounts.)
+const PREFERRED_MODELS = [
+  'gemini-3.1-flash-lite',
+  'gemini-flash-lite-latest',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3.1-flash',
+  'gemini-3.5-flash',
+  'gemini-3-flash-preview',
+  'gemini-flash-latest',
+];
+
+// Choose the best available model (prefer fast, available lite flash variants).
 function pickModel(models, preferred) {
   if (preferred && models.includes(preferred)) return preferred;
-  const find = (kw) => models.find((m) => {
-    const l = m.toLowerCase();
-    return l.includes(kw) && !l.includes('vision') && !l.includes('thinking') && !l.includes('exp') && !l.includes('preview');
-  });
-  return find('flash-lite') || find('2.5-flash') || find('flash-latest') || find('flash') || find('pro') || models[0];
+  for (const m of PREFERRED_MODELS) if (models.includes(m)) return m;
+  // Avoid retired generations (1.5 / 2.0 / 2.5) that 404 for new accounts.
+  const notOld = (m) => !/(1\.5|2\.0|2\.5)/.test(m);
+  const l = (m) => m.toLowerCase();
+  return models.find((m) => l(m).includes('flash-lite') && notOld(m))
+    || models.find((m) => l(m).includes('flash') && notOld(m))
+    || models.find((m) => notOld(m))
+    || models[0];
 }
 
 // Do a tiny real generateContent call to see if generation actually works
@@ -55,7 +71,7 @@ async function probeGenerate(apiKey, model) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: 'Reply with the single word: ok' }] }],
-      generationConfig: { maxOutputTokens: 5 },
+      generationConfig: { maxOutputTokens: 10, thinkingConfig: { thinkingBudget: 0 } },
     }),
   });
   if (res.ok) return { ok: true, status: 200 };
@@ -79,7 +95,7 @@ export async function testKey() {
   const candidates = [];
   const preferred = pickModel(models, model || cachedWorkingModel);
   if (preferred) candidates.push(preferred);
-  for (const m of ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest']) {
+  for (const m of PREFERRED_MODELS) {
     if (models.includes(m) && !candidates.includes(m)) candidates.push(m);
   }
   let lastError = '';
@@ -166,7 +182,8 @@ async function callGemini(imagePath, mime, boards, ctx) {
         ],
       },
     ],
-    generationConfig: { temperature: 0.9, topP: 0.95, maxOutputTokens: 800 },
+    // thinkingBudget:0 disables slow "thinking" — huge speedup for this task.
+    generationConfig: { temperature: 0.9, topP: 0.95, maxOutputTokens: 800, thinkingConfig: { thinkingBudget: 0 } },
   };
 
   const backoffs = [4000, 10000, 20000];
@@ -191,6 +208,13 @@ async function callGemini(imagePath, mime, boards, ctx) {
 
     const errText = await res.text();
     lastErr = `Gemini API ${res.status}: ${errText.slice(0, 200)}`;
+
+    // Some models don't accept thinkingConfig -> drop it and retry.
+    if (res.status === 400 && body.generationConfig.thinkingConfig && /thinking/i.test(errText)) {
+      delete body.generationConfig.thinkingConfig;
+      attempt--;
+      continue;
+    }
 
     // 404 = model name not found (e.g. a retired model). Auto-discover a working one.
     if (res.status === 404 && !triedResolve) {
