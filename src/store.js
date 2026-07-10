@@ -138,6 +138,13 @@ export function getPins() {
   return getDb().pins;
 }
 
+export function setBoards(boards) {
+  const d = getDb();
+  d.boards = boards;
+  saveNow();
+  return d.boards;
+}
+
 export function setPinterest(patch) {
   const d = getDb();
   d.pinterest = { ...d.pinterest, ...patch };

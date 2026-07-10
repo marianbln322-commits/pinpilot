@@ -115,6 +115,19 @@
           <input id="new-board-keywords" placeholder="keywords, comma, separated" />
           <button class="secondary" id="add-board">Add board</button>
         </div>
+
+        <div style="margin-top:18px; border-top:1px solid var(--line); padding-top:16px;">
+          <label class="field wide">
+            <span>📋 Import your Pinterest boards <small>(paste your board names, one per line)</small></span>
+            <textarea id="import-boards" rows="5" placeholder="My Herb Garden&#10;Indoor Plants&#10;Gardening Tips for Beginners&#10;Balcony Garden Ideas"></textarea>
+          </label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+            <button class="primary" id="import-replace">Replace all with these</button>
+            <button class="secondary" id="import-add">Add these</button>
+            <button class="ghost" id="clear-boards">Clear all boards</button>
+          </div>
+          <p class="hint" style="margin-top:10px;">Tip: on Pinterest, open your profile → copy your board names here. The AI will pick from <em>your</em> boards, and the exported CSV will match them exactly.</p>
+        </div>
       </div>
     </section>
 

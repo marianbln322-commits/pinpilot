@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import { config, pinterestConfigured } from './src/config.js';
 import {
   loadDb, getBoards, getSettings, updateSettings, addPin, updatePin,
-  deletePin, getPins, getPinterest, setPinterest,
+  deletePin, getPins, getPinterest, setPinterest, setBoards,
 } from './src/store.js';
 import { generateForImage, aiEnabled, testKey } from './src/aiEngine.js';
 import { buildSchedule, startScheduler } from './src/scheduler.js';
@@ -91,6 +91,25 @@ app.post('/api/boards', (req, res) => {
   });
   updateSettings({}); // triggers save
   res.json(boards);
+});
+
+// Bulk import boards from a list of names (paste from Pinterest).
+app.post('/api/boards/import', (req, res) => {
+  const { names, replace } = req.body || {};
+  const clean = (Array.isArray(names) ? names : []).map((s) => String(s).trim()).filter(Boolean);
+  const toBoard = (name) => ({
+    id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'board-' + Math.random().toString(36).slice(2, 7),
+    name,
+    niche: 'auto',
+    keywords: name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean),
+  });
+  let boards = replace ? [] : getBoards().slice();
+  const existing = new Set(boards.map((b) => b.id));
+  for (const n of clean) {
+    const b = toBoard(n);
+    if (!existing.has(b.id)) { boards.push(b); existing.add(b.id); }
+  }
+  res.json(setBoards(boards));
 });
 
 app.delete('/api/boards/:id', (req, res) => {

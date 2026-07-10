@@ -213,6 +213,22 @@ async function addBoard() {
   toast('Board added', 'ok');
 }
 
+async function importBoards(replace) {
+  const names = $('#import-boards').value.split('\n').map((s) => s.trim()).filter(Boolean);
+  if (!names.length) return toast('Paste at least one board name', 'err');
+  await api('/api/boards/import', { method: 'POST', body: { names, replace } });
+  $('#import-boards').value = '';
+  await refresh();
+  toast(replace ? `Boards replaced with your ${names.length}` : `Added ${names.length} boards`, 'ok');
+}
+
+async function clearBoards() {
+  if (!confirm('Remove ALL boards? You can paste your own afterwards.')) return;
+  await api('/api/boards/import', { method: 'POST', body: { names: [], replace: true } });
+  await refresh();
+  toast('All boards cleared');
+}
+
 async function uploadFiles(files) {
   if (!files.length) return;
   const prog = $('#upload-progress');
@@ -372,6 +388,9 @@ function initEvents() {
   $('#save-settings').onclick = saveSettings;
   $('#test-ai').onclick = testAi;
   $('#add-board').onclick = addBoard;
+  $('#import-replace').onclick = () => importBoards(true);
+  $('#import-add').onclick = () => importBoards(false);
+  $('#clear-boards').onclick = clearBoards;
   $('#generate-all').onclick = generateAll;
   $('#regenerate-all').onclick = regenerateAll;
   $('#build-schedule').onclick = buildSchedule;
