@@ -23,6 +23,42 @@ export function aiEnabled() {
   return Boolean(resolveCreds().apiKey);
 }
 
+// Cache the model we've confirmed works for this key/run.
+let cachedWorkingModel = null;
+
+// List model names that support image+text generation for this key.
+async function listGenerateModels(apiKey) {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=1000`);
+  if (!res.ok) throw new Error(`List models ${res.status}: ${(await res.text()).slice(0, 150)}`);
+  const data = await res.json();
+  return (data.models || [])
+    .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map((m) => m.name.replace(/^models\//, ''));
+}
+
+// Choose the best available model (prefer cheap, high-quota flash variants).
+function pickModel(models, preferred) {
+  if (preferred && models.includes(preferred)) return preferred;
+  const find = (kw) => models.find((m) => {
+    const l = m.toLowerCase();
+    return l.includes(kw) && !l.includes('vision') && !l.includes('thinking') && !l.includes('exp') && !l.includes('preview');
+  });
+  return find('flash-lite') || find('2.5-flash') || find('flash-latest') || find('flash') || find('pro') || models[0];
+}
+
+// Verify the key and report available generate-capable models.
+export async function testKey() {
+  const { apiKey, model } = resolveCreds();
+  if (!apiKey) return { ok: false, error: 'No API key saved. Paste your Gemini key and click Save settings.' };
+  try {
+    const models = await listGenerateModels(apiKey);
+    if (!models.length) return { ok: false, error: 'Key works but no usable models found.', models: [] };
+    return { ok: true, models, chosen: pickModel(models, model || cachedWorkingModel) };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 const POWER_WORDS = [
   'Easy', 'Quick', 'Simple', 'Best', 'Ultimate', 'Secret', 'Proven',
   'Effortless', 'Genius', 'Must-Try', 'Game-Changing',
@@ -79,10 +115,10 @@ function extractJson(text) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function callGemini(imagePath, mime, boards, ctx) {
-  const { apiKey, model } = resolveCreds();
+  const { apiKey, model: requestedModel } = resolveCreds();
+  let model = cachedWorkingModel || requestedModel;
   const prompt = buildPrompt(boards, ctx);
   const base64 = fs.readFileSync(imagePath).toString('base64');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const body = {
     contents: [
@@ -97,10 +133,11 @@ async function callGemini(imagePath, mime, boards, ctx) {
     generationConfig: { temperature: 0.9, topP: 0.95, maxOutputTokens: 800 },
   };
 
-  // Retry on transient rate-limit (429) / overloaded (503) with backoff.
   const backoffs = [4000, 10000, 20000];
   let lastErr = '';
+  let triedResolve = false;
   for (let attempt = 0; attempt <= backoffs.length; attempt++) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -112,17 +149,33 @@ async function callGemini(imagePath, mime, boards, ctx) {
       const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
       const parsed = extractJson(text);
       if (!parsed) throw new Error('Gemini returned unparseable output');
+      cachedWorkingModel = model; // remember what worked
       return parsed;
     }
 
     const errText = await res.text();
     lastErr = `Gemini API ${res.status}: ${errText.slice(0, 200)}`;
 
-    // 429 = rate/quota limit, 503 = overloaded -> wait and retry.
+    // 404 = model name not found (e.g. a retired model). Auto-discover a working one.
+    if (res.status === 404 && !triedResolve) {
+      triedResolve = true;
+      try {
+        const models = await listGenerateModels(apiKey);
+        const chosen = pickModel(models, null);
+        if (chosen && chosen !== model) {
+          model = chosen;
+          cachedWorkingModel = chosen;
+          attempt--; // don't burn a retry slot for the self-heal
+          continue;
+        }
+      } catch { /* fall through to throw below */ }
+      throw new Error(lastErr + ' — model not available for this key');
+    }
+
+    // 429 = rate/quota, 503 = overloaded -> wait and retry.
     if ((res.status === 429 || res.status === 503) && attempt < backoffs.length) {
       const err = new Error(lastErr);
       err.rateLimited = res.status === 429;
-      // If it's a daily-quota exhaustion, retrying won't help within the minute.
       if (/per day|quota metric.*per day|PerDay/i.test(errText)) {
         err.dailyQuota = true;
         throw err;

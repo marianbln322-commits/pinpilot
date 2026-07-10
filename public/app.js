@@ -154,6 +154,42 @@ async function saveSettings() {
   toast(patch.geminiApiKey ? 'Settings saved — AI key updated' : 'Settings saved', 'ok');
 }
 
+async function testAi() {
+  const out = $('#ai-test-result');
+  out.textContent = 'Testing…';
+  const btn = $('#test-ai');
+  btn.disabled = true;
+  try {
+    // save first so the just-typed key is used
+    await saveSettingsSilent();
+    const r = await api('/api/ai-test');
+    if (r.ok) {
+      out.textContent = `✓ Key works — ${r.models.length} models available. Recommended: ${r.chosen}`;
+      out.style.color = '#1ea672';
+      if (r.chosen) $('#geminiModel').value = r.chosen;
+      toast(`AI key works! Using model: ${r.chosen}. Click Save settings to keep it.`, 'ok');
+    } else {
+      out.textContent = `✗ ${r.error}`;
+      out.style.color = '#d94b4b';
+      toast('AI test failed: ' + r.error, 'err');
+    }
+  } catch (e) {
+    out.textContent = '✗ ' + e.message;
+    toast('Test error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Save settings without a success toast (used before AI test).
+async function saveSettingsSilent() {
+  const patch = {
+    geminiApiKey: $('#geminiApiKey').value.trim(),
+    geminiModel: $('#geminiModel').value.trim(),
+  };
+  await api('/api/settings', { method: 'POST', body: patch });
+}
+
 async function addBoard() {
   const name = $('#new-board-name').value.trim();
   if (!name) return toast('Enter a board name', 'err');
@@ -328,6 +364,7 @@ function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, (c) => ({ '&
 // ---------- wire up ----------
 function initEvents() {
   $('#save-settings').onclick = saveSettings;
+  $('#test-ai').onclick = testAi;
   $('#add-board').onclick = addBoard;
   $('#generate-all').onclick = generateAll;
   $('#regenerate-all').onclick = regenerateAll;

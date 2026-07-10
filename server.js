@@ -9,7 +9,7 @@ import {
   loadDb, getBoards, getSettings, updateSettings, addPin, updatePin,
   deletePin, getPins, getPinterest, setPinterest,
 } from './src/store.js';
-import { generateForImage, aiEnabled } from './src/aiEngine.js';
+import { generateForImage, aiEnabled, testKey } from './src/aiEngine.js';
 import { buildSchedule, startScheduler } from './src/scheduler.js';
 import { pinsToCsv } from './src/csvExport.js';
 import {
@@ -46,6 +46,11 @@ const reqBase = (req) => `${req.protocol}://${req.get('host')}`;
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, aiEnabled: aiEnabled(), pinterestConfigured: pinterestConfigured() });
+});
+
+// Verify the Gemini key and list which models actually work for this key.
+app.get('/api/ai-test', async (req, res) => {
+  res.json(await testKey());
 });
 
 app.get('/api/state', (req, res) => {
