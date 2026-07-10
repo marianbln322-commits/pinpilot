@@ -201,48 +201,52 @@ async function uploadFiles(files) {
   xhr.send(form);
 }
 
-function reportToast(r) {
-  if (r.generated === 0) { toast('No pins to process (upload new images or use Regenerate ALL).'); return; }
-  if (r.aiUsed > 0 && r.fallback === 0) {
-    toast(`✓ AI wrote ${r.aiUsed} pin(s) with Gemini`, 'ok');
-  } else if (r.aiUsed > 0) {
-    toast(`AI: ${r.aiUsed}, templates: ${r.fallback}. ${r.lastError ? 'AI error: ' + r.lastError : ''}`, 'err');
-  } else {
-    toast(`Used templates (no AI). ${r.lastError ? 'Reason: ' + r.lastError : 'Add/save your Gemini key.'}`, 'err');
+// Runs generation in small batches (respects Gemini rate limits) with progress.
+async function runBatched(selector, buttons) {
+  buttons.forEach((b) => (b.disabled = true));
+  let totalAi = 0, totalFallback = 0, lastError = null;
+  try {
+    for (let i = 0; i < 60; i++) { // safety cap on batches
+      const r = await api('/api/generate', { method: 'POST', body: { ...selector, limit: 8 } });
+      totalAi += r.aiUsed;
+      totalFallback += r.fallback;
+      if (r.lastError) lastError = r.lastError;
+      await refresh();
+
+      if (r.dailyQuota) {
+        toast(`Daily AI limit reached. Done today: ${totalAi} with AI. Come back tomorrow and click again — it resumes where it left off.`, 'err');
+        return;
+      }
+      if (r.generated === 0) break;                 // nothing left to process
+      // If AI produced nothing this batch (and we asked for AI), stop to avoid looping.
+      if (selector.onlyMissing && r.aiUsed === 0) {
+        toast(`AI not producing content. ${lastError ? 'Reason: ' + lastError : 'Check your Gemini key / model.'}`, 'err');
+        return;
+      }
+      toast(`Working… ${totalAi} done with AI · ${r.remaining} left`);
+      if (r.remaining === 0) break;
+    }
+    if (totalAi > 0 && totalFallback === 0) toast(`✓ AI wrote ${totalAi} pin(s) with Gemini`, 'ok');
+    else if (totalAi > 0) toast(`Done: ${totalAi} with AI, ${totalFallback} with templates.`, 'ok');
+    else toast(`Used templates (no AI). ${lastError ? 'Reason: ' + lastError : 'Add/save your Gemini key.'}`, 'err');
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    buttons.forEach((b) => (b.disabled = false));
+    $('#generate-all').textContent = '✨ Generate AI content for new pins';
+    $('#regenerate-all').textContent = '🔁 Regenerate ALL (with AI)';
   }
 }
 
 async function generateAll() {
-  const btn = $('#generate-all');
-  btn.disabled = true;
-  btn.textContent = '✨ Generating…';
-  try {
-    const r = await api('/api/generate', { method: 'POST', body: {} });
-    await refresh();
-    reportToast(r);
-  } catch (e) {
-    toast('Generation error: ' + e.message, 'err');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '✨ Generate AI content for new pins';
-  }
+  $('#generate-all').textContent = '✨ Generating…';
+  await runBatched({}, [$('#generate-all'), $('#regenerate-all')]);
 }
 
 async function regenerateAll() {
-  if (!confirm('Rewrite title, description & board for ALL pins using AI? This replaces current text.')) return;
-  const btn = $('#regenerate-all');
-  btn.disabled = true;
-  btn.textContent = '🔁 Regenerating…';
-  try {
-    const r = await api('/api/generate', { method: 'POST', body: { all: true } });
-    await refresh();
-    reportToast(r);
-  } catch (e) {
-    toast('Regeneration error: ' + e.message, 'err');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '🔁 Regenerate ALL (with AI)';
-  }
+  if (!confirm('Rewrite title, description & board for ALL pins using AI?\n\nThis runs in batches and respects Gemini free-tier limits, so it can take a few minutes. Already-AI pins are skipped.')) return;
+  $('#regenerate-all').textContent = '🔁 Regenerating…';
+  await runBatched({ onlyMissing: true }, [$('#generate-all'), $('#regenerate-all')]);
 }
 
 async function buildSchedule() {

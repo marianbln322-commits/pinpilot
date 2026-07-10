@@ -139,21 +139,27 @@ function assignLink(index) {
   return urls[index % urls.length];
 }
 
+const AI_THROTTLE_MS = 4500; // ~13 requests/min — safe for Gemini free tier
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 app.post('/api/generate', async (req, res) => {
   const boards = getBoards();
   const settings = getSettings();
-  const { ids, all } = req.body || {};
-  // ids -> those pins; all -> every non-published/non-scheduled pin (re-generate);
-  // default -> only new uploads.
-  const pins = getPins().filter((p) => {
+  const { ids, all, onlyMissing, limit } = req.body || {};
+  // ids -> those pins; all/onlyMissing -> every editable pin; default -> new uploads.
+  let selected = getPins().filter((p) => {
     if (ids) return ids.includes(p.id);
-    if (all) return ['uploaded', 'ready', 'error'].includes(p.status);
+    if (all || onlyMissing) return ['uploaded', 'ready', 'error'].includes(p.status);
     return p.status === 'uploaded';
   });
+  // onlyMissing: skip pins already written by AI (saves quota on re-runs).
+  if (onlyMissing) selected = selected.filter((p) => p.generatedBy !== 'gemini');
+  if (limit && limit > 0) selected = selected.slice(0, limit);
 
-  let done = 0, aiUsed = 0, fallback = 0, lastError = null;
+  let done = 0, aiUsed = 0, fallback = 0, lastError = null, dailyQuota = false;
   let linkIdx = getPins().filter((p) => p.link).length;
-  for (const pin of pins) {
+  for (let i = 0; i < selected.length; i++) {
+    const pin = selected[i];
     try {
       const meta = await generateForImage(
         { imagePath: path.join(config.paths.uploads, pin.filename), filename: pin.originalName, mime: pin.mime },
@@ -163,6 +169,7 @@ app.post('/api/generate', async (req, res) => {
       const hashtags = settings.hashtags ? ` ${settings.hashtags}` : '';
       if (meta._ai) aiUsed++; else fallback++;
       if (meta._error) lastError = meta._error;
+      if (meta._dailyQuota) dailyQuota = true;
       updatePin(pin.id, {
         title: meta.title,
         description: (meta.description + hashtags).slice(0, 500),
@@ -175,11 +182,17 @@ app.post('/api/generate', async (req, res) => {
         genError: meta._error || null,
       });
       done++;
+      if (meta._dailyQuota) break; // daily quota exhausted — stop, try again tomorrow
+      // Throttle between real AI calls to stay under the per-minute limit.
+      if (aiEnabled() && i < selected.length - 1) await sleep(AI_THROTTLE_MS);
     } catch (e) {
       updatePin(pin.id, { status: 'error', error: e.message });
     }
   }
-  res.json({ generated: done, total: pins.length, aiUsed, fallback, lastError });
+  const remaining = getPins().filter(
+    (p) => ['uploaded', 'ready', 'error'].includes(p.status) && p.generatedBy !== 'gemini'
+  ).length;
+  res.json({ generated: done, total: selected.length, aiUsed, fallback, lastError, dailyQuota, remaining });
 });
 
 // --- edit / delete a pin ---
@@ -295,9 +308,11 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(config.paths.public, 'index.html'));
 });
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   console.log(`\n  PinPilot running at http://localhost:${config.port}`);
   console.log(`  AI (Gemini): ${aiEnabled() ? 'ENABLED' : 'template fallback (no key)'}`);
   console.log(`  Pinterest API: ${pinterestConfigured() ? 'configured' : 'not configured (CSV export mode)'}\n`);
   startScheduler();
 });
+// Allow long-running batch generation requests (throttled AI calls).
+server.requestTimeout = 0;

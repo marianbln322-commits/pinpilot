@@ -76,6 +76,8 @@ function extractJson(text) {
   }
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function callGemini(imagePath, mime, boards, ctx) {
   const { apiKey, model } = resolveCreds();
   const prompt = buildPrompt(boards, ctx);
@@ -95,22 +97,44 @@ async function callGemini(imagePath, mime, boards, ctx) {
     generationConfig: { temperature: 0.9, topP: 0.95, maxOutputTokens: 800 },
   };
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  // Retry on transient rate-limit (429) / overloaded (503) with backoff.
+  const backoffs = [4000, 10000, 20000];
+  let lastErr = '';
+  for (let attempt = 0; attempt <= backoffs.length; attempt++) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
-  if (!res.ok) {
+    if (res.ok) {
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+      const parsed = extractJson(text);
+      if (!parsed) throw new Error('Gemini returned unparseable output');
+      return parsed;
+    }
+
     const errText = await res.text();
-    throw new Error(`Gemini API ${res.status}: ${errText.slice(0, 300)}`);
-  }
+    lastErr = `Gemini API ${res.status}: ${errText.slice(0, 200)}`;
 
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
-  const parsed = extractJson(text);
-  if (!parsed) throw new Error('Gemini returned unparseable output');
-  return parsed;
+    // 429 = rate/quota limit, 503 = overloaded -> wait and retry.
+    if ((res.status === 429 || res.status === 503) && attempt < backoffs.length) {
+      const err = new Error(lastErr);
+      err.rateLimited = res.status === 429;
+      // If it's a daily-quota exhaustion, retrying won't help within the minute.
+      if (/per day|quota metric.*per day|PerDay/i.test(errText)) {
+        err.dailyQuota = true;
+        throw err;
+      }
+      await sleep(backoffs[attempt]);
+      continue;
+    }
+    const err = new Error(lastErr);
+    err.rateLimited = res.status === 429;
+    throw err;
+  }
+  throw new Error(lastErr || 'Gemini request failed');
 }
 
 // --- Fallback generator (no API key) ---
@@ -230,7 +254,12 @@ export async function generateForImage({ imagePath, filename, mime }, boards, se
       };
     } catch (e) {
       console.warn(`AI generation failed for ${filename}, using fallback: ${e.message}`);
-      return { ...fallbackGenerate(filename, boards, ctx), _error: e.message };
+      return {
+        ...fallbackGenerate(filename, boards, ctx),
+        _error: e.message,
+        _rateLimited: Boolean(e.rateLimited),
+        _dailyQuota: Boolean(e.dailyQuota),
+      };
     }
   }
   return fallbackGenerate(filename, boards, ctx);
