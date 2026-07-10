@@ -34,6 +34,7 @@ const DEFAULT_DB = {
     aiDelaySeconds: 4.5,       // pause between AI calls (lower = faster; ~0.3 if billing enabled)
     pinterestAppId: '',        // Pinterest developer app id (or via .env)
     pinterestAppSecret: '',    // Pinterest developer app secret (or via .env)
+    imgbbApiKey: '',           // optional: permanent image hosting (else free litterbox 72h)
   },
   // Multiple connected Pinterest accounts. Each: { id, username, accountType,
   // accessToken, refreshToken, expiresAt, boards: [{id,name}], connectedAt }.

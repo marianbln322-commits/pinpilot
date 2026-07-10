@@ -12,6 +12,7 @@ import {
 import { generateForImage, aiEnabled, testKey } from './src/aiEngine.js';
 import { buildSchedule, startScheduler } from './src/scheduler.js';
 import { pinsToCsv } from './src/csvExport.js';
+import { hostImage } from './src/imageHost.js';
 import {
   getAuthUrl, isConfigured as pinterestConfigured, connectAccountFromCode,
   syncAccountBoards, syncAllBoards, createPinOnPinterest,
@@ -67,8 +68,10 @@ app.get('/api/state', (req, res) => {
       const s = { ...getSettings() };
       s.geminiKeySet = Boolean(s.geminiApiKey);
       s.pinterestSecretSet = Boolean(s.pinterestAppSecret);
+      s.imgbbKeySet = Boolean(s.imgbbApiKey);
       delete s.geminiApiKey;        // never expose secrets to the client
       delete s.pinterestAppSecret;
+      delete s.imgbbApiKey;
       return s;
     })(),
     boards: effectiveBoards(),
@@ -126,12 +129,13 @@ app.delete('/api/boards/:id', (req, res) => {
 
 // --- settings ---
 app.post('/api/settings', (req, res) => {
-  const allowed = ['destinationUrls', 'pinsPerDay', 'postingHours', 'startDate', 'defaultNiche', 'hashtags', 'language', 'tone', 'geminiApiKey', 'geminiModel', 'aiDelaySeconds', 'pinterestAppId', 'pinterestAppSecret'];
+  const allowed = ['destinationUrls', 'pinsPerDay', 'postingHours', 'startDate', 'defaultNiche', 'hashtags', 'language', 'tone', 'geminiApiKey', 'geminiModel', 'aiDelaySeconds', 'pinterestAppId', 'pinterestAppSecret', 'imgbbApiKey'];
   const patch = {};
   for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
   // Don't wipe saved secrets when the UI sends an empty (masked) field.
   if (patch.geminiApiKey === '') delete patch.geminiApiKey;
   if (patch.pinterestAppSecret === '') delete patch.pinterestAppSecret;
+  if (patch.imgbbApiKey === '') delete patch.imgbbApiKey;
   res.json(updateSettings(patch));
 });
 
@@ -281,9 +285,42 @@ app.post('/api/schedule', (req, res) => {
   res.json({ scheduled: scheduled.length, items: scheduled });
 });
 
+// Host images publicly so Pinterest's bulk CSV can fetch them. Batched.
+app.post('/api/host-images', async (req, res) => {
+  const { limit } = req.body || {};
+  const settings = getSettings();
+  let selected = getPins().filter(
+    (p) => ['ready', 'scheduled'].includes(p.status) && p.title && !p.hostedUrl
+  );
+  if (limit && limit > 0) selected = selected.slice(0, limit);
+
+  let hosted = 0, lastError = null;
+  let linkIdx = getPins().filter((p) => p.link).length;
+  for (const pin of selected) {
+    try {
+      const { url, host } = await hostImage(pin);
+      const patch = { hostedUrl: url, hostedHost: host, hostedAt: new Date().toISOString() };
+      // Pinterest requires a landing-page link per pin — backfill if missing.
+      if (!pin.link) patch.link = assignLink(linkIdx++);
+      updatePin(pin.id, patch);
+      hosted++;
+    } catch (e) {
+      lastError = e.message;
+      updatePin(pin.id, { hostError: e.message });
+    }
+  }
+  const remaining = getPins().filter(
+    (p) => ['ready', 'scheduled'].includes(p.status) && p.title && !p.hostedUrl
+  ).length;
+  res.json({ hosted, total: selected.length, remaining, lastError });
+});
+
 // --- CSV export ---
 app.get('/api/export.csv', (req, res) => {
-  const pins = getPins().filter((p) => ['ready', 'scheduled'].includes(p.status) && p.title);
+  // Only export rows Pinterest can actually accept: hosted image + title + link.
+  const pins = getPins().filter(
+    (p) => ['ready', 'scheduled'].includes(p.status) && p.title && p.hostedUrl && p.link
+  );
   const csv = pinsToCsv(pins, reqBase(req));
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="pinpilot-pinterest-bulk.csv"');

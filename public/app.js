@@ -94,6 +94,9 @@ function renderSettings() {
   const secField = $('#pinterestAppSecret');
   secField.value = '';
   secField.placeholder = s.pinterestSecretSet ? '•••••••••• (saved — type to replace)' : 'Paste your app secret';
+  const imgbb = $('#imgbbApiKey');
+  imgbb.value = '';
+  imgbb.placeholder = s.imgbbKeySet ? '•••••••••• (saved — type to replace)' : 'Leave blank to use the free image host';
 }
 
 function renderBoards() {
@@ -136,6 +139,7 @@ function renderPins() {
         <div class="pin-meta">
           ${p.boardId ? `<span class="tag board">${boardName(p.boardId)}</span>` : ''}
           ${p.generatedBy ? `<span class="tag">${p.generatedBy === 'gemini' ? '🤖 AI' : '📄 template'}</span>` : ''}
+          ${p.hostedUrl ? '<span class="tag board">☁️ hosted</span>' : ''}
           ${p.scheduledAt ? `<span class="tag">🗓 ${new Date(p.scheduledAt).toLocaleString()}</span>` : ''}
         </div>
       </div>
@@ -184,6 +188,7 @@ async function saveSettings() {
     aiDelaySeconds: Number($('#aiDelaySeconds').value) || 0,
     pinterestAppId: $('#pinterestAppId').value.trim(),
     pinterestAppSecret: $('#pinterestAppSecret').value.trim(), // empty = keep existing (masked)
+    imgbbApiKey: $('#imgbbApiKey').value.trim(), // empty = keep existing (masked)
   };
   await api('/api/settings', { method: 'POST', body: patch });
   await refresh();
@@ -391,6 +396,33 @@ async function buildSchedule() {
   toast(`Scheduled ${r.scheduled} pins`, 'ok');
 }
 
+// Upload images to a public host (batched) so the Pinterest CSV works.
+async function hostImages() {
+  const btn = $('#host-images');
+  btn.disabled = true;
+  btn.textContent = '☁️ Hosting…';
+  let total = 0, lastError = null;
+  try {
+    for (let i = 0; i < 3000; i++) {
+      const r = await api('/api/host-images', { method: 'POST', body: { limit: 5 } });
+      total += r.hosted;
+      if (r.lastError) lastError = r.lastError;
+      await refresh();
+      if (r.hosted === 0) break;
+      toast(`Hosting images… ${total} done · ${r.remaining} left`);
+      if (r.remaining === 0) break;
+    }
+    if (total > 0 && !lastError) toast(`✓ Hosted ${total} image(s). Now Export the CSV.`, 'ok');
+    else if (total > 0) toast(`Hosted ${total}, some failed: ${lastError}`, 'err');
+    else toast(`Nothing to host — generate pins first. ${lastError || ''}`, lastError ? 'err' : '');
+  } catch (e) {
+    toast('Hosting error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '☁️ Host images for Pinterest';
+  }
+}
+
 async function regen(id) {
   toast('Regenerating…');
   try {
@@ -472,6 +504,19 @@ function initEvents() {
   $('#generate-all').onclick = generateAll;
   $('#regenerate-all').onclick = regenerateAll;
   $('#build-schedule').onclick = buildSchedule;
+  $('#host-images').onclick = hostImages;
+  $('#export-csv').onclick = (e) => {
+    const ready = (state.pins || []).filter(
+      (p) => ['ready', 'scheduled'].includes(p.status) && p.title && p.hostedUrl && p.link
+    ).length;
+    if (ready === 0) {
+      e.preventDefault();
+      const noLinks = !((state.settings || {}).destinationUrls || []).length;
+      toast(noLinks
+        ? 'Pinterest needs a link per pin: add a Destination URL in Settings, Generate, then Host images.'
+        : 'Click "☁️ Host images for Pinterest" first — then export.', 'err');
+    }
+  };
   $('#modal-close').onclick = closeModal;
   $('#modal').onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
 

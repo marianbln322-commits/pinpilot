@@ -17,6 +17,7 @@ function csvEscape(value) {
  * Requires PUBLIC_BASE_URL to be a publicly reachable host in production.
  */
 function mediaUrl(pin, reqBaseUrl) {
+  if (pin.hostedUrl) return pin.hostedUrl; // public URL Pinterest can fetch
   const base = config.publicBaseUrl || reqBaseUrl || '';
   return `${base}/uploads/${pin.filename}`;
 }
