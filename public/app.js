@@ -248,8 +248,8 @@ async function runBatched(selector, buttons) {
   buttons.forEach((b) => (b.disabled = true));
   let totalAi = 0, totalFallback = 0, lastError = null;
   try {
-    for (let i = 0; i < 60; i++) { // safety cap on batches
-      const r = await api('/api/generate', { method: 'POST', body: { ...selector, limit: 8 } });
+    for (let i = 0; i < 2000; i++) { // safety cap on batches
+      const r = await api('/api/generate', { method: 'POST', body: { ...selector, limit: 3 } });
       totalAi += r.aiUsed;
       totalFallback += r.fallback;
       if (r.lastError) lastError = r.lastError;
