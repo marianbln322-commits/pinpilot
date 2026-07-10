@@ -103,6 +103,7 @@ function renderPins() {
         <div class="pin-desc">${p.description || ''}</div>
         <div class="pin-meta">
           ${p.boardId ? `<span class="tag board">${boardName(p.boardId)}</span>` : ''}
+          ${p.generatedBy ? `<span class="tag">${p.generatedBy === 'gemini' ? '🤖 AI' : '📄 template'}</span>` : ''}
           ${p.scheduledAt ? `<span class="tag">🗓 ${new Date(p.scheduledAt).toLocaleString()}</span>` : ''}
         </div>
       </div>
@@ -200,6 +201,17 @@ async function uploadFiles(files) {
   xhr.send(form);
 }
 
+function reportToast(r) {
+  if (r.generated === 0) { toast('No pins to process (upload new images or use Regenerate ALL).'); return; }
+  if (r.aiUsed > 0 && r.fallback === 0) {
+    toast(`✓ AI wrote ${r.aiUsed} pin(s) with Gemini`, 'ok');
+  } else if (r.aiUsed > 0) {
+    toast(`AI: ${r.aiUsed}, templates: ${r.fallback}. ${r.lastError ? 'AI error: ' + r.lastError : ''}`, 'err');
+  } else {
+    toast(`Used templates (no AI). ${r.lastError ? 'Reason: ' + r.lastError : 'Add/save your Gemini key.'}`, 'err');
+  }
+}
+
 async function generateAll() {
   const btn = $('#generate-all');
   btn.disabled = true;
@@ -207,12 +219,29 @@ async function generateAll() {
   try {
     const r = await api('/api/generate', { method: 'POST', body: {} });
     await refresh();
-    toast(`Generated content for ${r.generated} pin(s)`, 'ok');
+    reportToast(r);
   } catch (e) {
     toast('Generation error: ' + e.message, 'err');
   } finally {
     btn.disabled = false;
     btn.textContent = '✨ Generate AI content for new pins';
+  }
+}
+
+async function regenerateAll() {
+  if (!confirm('Rewrite title, description & board for ALL pins using AI? This replaces current text.')) return;
+  const btn = $('#regenerate-all');
+  btn.disabled = true;
+  btn.textContent = '🔁 Regenerating…';
+  try {
+    const r = await api('/api/generate', { method: 'POST', body: { all: true } });
+    await refresh();
+    reportToast(r);
+  } catch (e) {
+    toast('Regeneration error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔁 Regenerate ALL (with AI)';
   }
 }
 
@@ -297,6 +326,7 @@ function initEvents() {
   $('#save-settings').onclick = saveSettings;
   $('#add-board').onclick = addBoard;
   $('#generate-all').onclick = generateAll;
+  $('#regenerate-all').onclick = regenerateAll;
   $('#build-schedule').onclick = buildSchedule;
   $('#modal-close').onclick = closeModal;
   $('#modal').onclick = (e) => { if (e.target.id === 'modal') closeModal(); };

@@ -226,10 +226,11 @@ export async function generateForImage({ imagePath, filename, mime }, boards, se
         board_id: result.board_id,
         keywords: Array.isArray(result.keywords) ? result.keywords.slice(0, 8) : [],
         alt_text: String(result.alt_text || '').slice(0, 200),
+        _ai: true,
       };
     } catch (e) {
       console.warn(`AI generation failed for ${filename}, using fallback: ${e.message}`);
-      return fallbackGenerate(filename, boards, ctx);
+      return { ...fallbackGenerate(filename, boards, ctx), _error: e.message };
     }
   }
   return fallbackGenerate(filename, boards, ctx);

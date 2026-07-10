@@ -142,12 +142,16 @@ function assignLink(index) {
 app.post('/api/generate', async (req, res) => {
   const boards = getBoards();
   const settings = getSettings();
-  const targetIds = req.body?.ids;
-  const pins = getPins().filter(
-    (p) => (targetIds ? targetIds.includes(p.id) : p.status === 'uploaded')
-  );
+  const { ids, all } = req.body || {};
+  // ids -> those pins; all -> every non-published/non-scheduled pin (re-generate);
+  // default -> only new uploads.
+  const pins = getPins().filter((p) => {
+    if (ids) return ids.includes(p.id);
+    if (all) return ['uploaded', 'ready', 'error'].includes(p.status);
+    return p.status === 'uploaded';
+  });
 
-  let done = 0;
+  let done = 0, aiUsed = 0, fallback = 0, lastError = null;
   let linkIdx = getPins().filter((p) => p.link).length;
   for (const pin of pins) {
     try {
@@ -157,6 +161,8 @@ app.post('/api/generate', async (req, res) => {
         settings
       );
       const hashtags = settings.hashtags ? ` ${settings.hashtags}` : '';
+      if (meta._ai) aiUsed++; else fallback++;
+      if (meta._error) lastError = meta._error;
       updatePin(pin.id, {
         title: meta.title,
         description: (meta.description + hashtags).slice(0, 500),
@@ -165,14 +171,15 @@ app.post('/api/generate', async (req, res) => {
         boardId: meta.board_id,
         link: pin.link || assignLink(linkIdx++),
         status: 'ready',
-        generatedBy: aiEnabled() ? 'gemini' : 'template',
+        generatedBy: meta._ai ? 'gemini' : 'template',
+        genError: meta._error || null,
       });
       done++;
     } catch (e) {
       updatePin(pin.id, { status: 'error', error: e.message });
     }
   }
-  res.json({ generated: done, total: pins.length });
+  res.json({ generated: done, total: pins.length, aiUsed, fallback, lastError });
 });
 
 // --- edit / delete a pin ---
