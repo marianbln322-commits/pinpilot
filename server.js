@@ -346,7 +346,7 @@ app.get('/api/export.csv', (req, res) => {
   const csv = pinsToCsv(pins, reqBase(req));
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="pinpilot-pinterest-bulk.csv"');
-  res.send('\uFEFF' + csv); // BOM for Excel
+  res.send(csv); // no BOM — matches Pinterest's official sample exactly
 });
 
 // --- Pinterest OAuth (Stage 2) ---
