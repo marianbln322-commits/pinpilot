@@ -285,6 +285,19 @@ app.post('/api/schedule', (req, res) => {
   res.json({ scheduled: scheduled.length, items: scheduled });
 });
 
+// Clear scheduled dates so pins publish immediately (Pinterest caps how many
+// FUTURE-scheduled pins it accepts, so "publish now" lets all rows go through).
+app.post('/api/schedule/clear', (req, res) => {
+  let cleared = 0;
+  for (const p of getPins()) {
+    if (p.scheduledAt || p.status === 'scheduled') {
+      updatePin(p.id, { scheduledAt: null, status: p.status === 'scheduled' ? 'ready' : p.status });
+      cleared++;
+    }
+  }
+  res.json({ cleared });
+});
+
 // Host images publicly so Pinterest's bulk CSV can fetch them. Batched.
 app.post('/api/host-images', async (req, res) => {
   const { limit } = req.body || {};

@@ -516,6 +516,11 @@ function initEvents() {
   $('#generate-all').onclick = generateAll;
   $('#regenerate-all').onclick = regenerateAll;
   $('#build-schedule').onclick = buildSchedule;
+  $('#clear-schedule').onclick = async () => {
+    const r = await api('/api/schedule/clear', { method: 'POST', body: {} });
+    await refresh();
+    toast(`Cleared dates on ${r.cleared} pins — they'll publish immediately`, 'ok');
+  };
   $('#host-images').onclick = hostImages;
   $('#export-csv').onclick = (e) => {
     const ready = (state.pins || []).filter(
