@@ -330,10 +330,19 @@ app.post('/api/host-images', async (req, res) => {
 
 // --- CSV export ---
 app.get('/api/export.csv', (req, res) => {
+  const onlyNew = req.query.onlyNew === '1'; // skip already-exported pins
+  const mark = req.query.mark === '1';       // mark included pins as exported
+  const limit = Number(req.query.limit) || 0;
   // Only export rows Pinterest can actually accept: hosted image + title + link.
-  const pins = getPins().filter(
+  let pins = getPins().filter(
     (p) => ['ready', 'scheduled'].includes(p.status) && p.title && p.hostedUrl && p.link
   );
+  if (onlyNew) pins = pins.filter((p) => !p.exportedAt);
+  if (limit > 0) pins = pins.slice(0, limit);
+  if (mark) {
+    const now = new Date().toISOString();
+    for (const p of pins) updatePin(p.id, { exportedAt: now });
+  }
   const csv = pinsToCsv(pins, reqBase(req));
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="pinpilot-pinterest-bulk.csv"');

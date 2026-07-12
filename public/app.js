@@ -140,6 +140,7 @@ function renderPins() {
           ${p.boardId ? `<span class="tag board">${boardName(p.boardId)}</span>` : ''}
           ${p.generatedBy ? `<span class="tag">${p.generatedBy === 'gemini' ? '🤖 AI' : '📄 template'}</span>` : ''}
           ${p.hostedUrl ? '<span class="tag board">☁️ hosted</span>' : ''}
+          ${p.exportedAt ? '<span class="tag">✅ exported</span>' : ''}
           ${p.scheduledAt ? `<span class="tag">🗓 ${new Date(p.scheduledAt).toLocaleString()}</span>` : ''}
         </div>
       </div>
@@ -408,6 +409,27 @@ async function buildSchedule() {
   toast(`Scheduled ${r.scheduled} pins`, 'ok');
 }
 
+// Export a small daily batch of NOT-yet-exported pins (avoids dumping all at once).
+async function exportBatch() {
+  const n = Number($('#batch-size').value) || 15;
+  const res = await fetch(`/api/export.csv?onlyNew=1&mark=1&limit=${n}`);
+  const text = await res.text();
+  const rows = text.replace(/^\uFEFF/, '').trim().split('\n').filter(Boolean).length - 1;
+  if (rows <= 0) {
+    toast('No new pins to export. (All exported already, or none are hosted + linked yet.)', 'err');
+    return;
+  }
+  const blob = new Blob([text], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pinpilot-batch.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  await refresh();
+  toast(`Exported ${rows} pins. Upload this CSV to Pinterest, then come back tomorrow for the next batch.`, 'ok');
+}
+
 // Upload images to a public host (batched) so the Pinterest CSV works.
 async function hostImages() {
   const btn = $('#host-images');
@@ -522,6 +544,7 @@ function initEvents() {
     toast(`Cleared dates on ${r.cleared} pins — they'll publish immediately`, 'ok');
   };
   $('#host-images').onclick = hostImages;
+  $('#export-batch').onclick = exportBatch;
   $('#export-csv').onclick = (e) => {
     const ready = (state.pins || []).filter(
       (p) => ['ready', 'scheduled'].includes(p.status) && p.title && p.hostedUrl && p.link

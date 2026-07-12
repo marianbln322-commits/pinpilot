@@ -173,7 +173,11 @@
           <button class="secondary" id="build-schedule">🗓️ Build schedule</button>
           <button class="ghost" id="clear-schedule" title="Publish all now (Pinterest limits scheduled pins)">🗓️❌ Publish now (clear dates)</button>
           <button class="secondary" id="host-images">☁️ Host images for Pinterest</button>
-          <a class="secondary" id="export-csv" href="/api/export.csv">⬇️ Export Pinterest CSV</a>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--muted)">
+            per day <input id="batch-size" type="number" min="1" max="100" value="15" style="width:60px" />
+          </label>
+          <button class="primary" id="export-batch">⬇️ Export next batch</button>
+          <a class="ghost" id="export-csv" href="/api/export.csv">Export ALL</a>
           <span class="spacer"></span>
           <span id="counts" class="counts"></span>
         </div>
