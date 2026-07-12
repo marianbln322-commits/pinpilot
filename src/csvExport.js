@@ -22,12 +22,11 @@ function mediaUrl(pin, reqBaseUrl) {
   return `${base}/uploads/${pin.filename}`;
 }
 
-// Pinterest expects publish date like "YYYY-MM-DD HH:mm" (24h).
+// Pinterest requires ISO format "YYYY-MM-DDTHH:MM:SS" (UTC) or "YYYY-MM-DD".
+// A space separator or missing seconds causes "date not formatted correctly".
 function formatPublishDate(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return new Date(iso).toISOString().replace(/\.\d{3}Z$/, ''); // e.g. 2026-07-13T07:00:00
 }
 
 export function pinsToCsv(pins, reqBaseUrl) {

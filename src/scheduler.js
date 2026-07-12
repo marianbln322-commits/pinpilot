@@ -22,32 +22,19 @@ export function buildSchedule() {
   const start = settings.startDate ? new Date(settings.startDate) : new Date(Date.now() + 24 * 3600 * 1000);
   start.setHours(0, 0, 0, 0);
 
-  let dayOffset = 0;
-  let slotInDay = 0;
-
   const scheduled = [];
-  for (const pin of pins) {
+  pins.forEach((pin, i) => {
+    const dayOffset = Math.floor(i / perDay);   // which day
+    const slotInDay = i % perDay;               // which slot that day
     const hour = hours[slotInDay % hours.length];
+    const extraMin = Math.floor(slotInDay / hours.length) * 7; // separate when > hours/day
     const when = new Date(start);
     when.setDate(start.getDate() + dayOffset);
-    when.setHours(hour, (slotInDay * 7) % 60, 0, 0); // spread minutes a bit
+    when.setHours(hour, extraMin % 60, 0, 0);
 
     updatePin(pin.id, { scheduledAt: when.toISOString(), status: 'scheduled' });
     scheduled.push({ id: pin.id, scheduledAt: when.toISOString() });
-
-    slotInDay++;
-    if (slotInDay >= perDay || slotInDay >= hours.length * Math.ceil(perDay / hours.length)) {
-      // move to next day once we've filled the day's slots
-      if (slotInDay % hours.length === 0 && slotInDay >= perDay) {
-        dayOffset++;
-        slotInDay = 0;
-      }
-    }
-    if (slotInDay >= perDay) {
-      dayOffset++;
-      slotInDay = 0;
-    }
-  }
+  });
   return scheduled;
 }
 
