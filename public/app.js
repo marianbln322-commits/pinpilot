@@ -197,12 +197,20 @@ async function saveSettings() {
 
 async function testAi() {
   const out = $('#ai-test-result');
+  const typed = $('#geminiApiKey').value.trim();
+  // If the field is empty and nothing was saved before, guide the user.
+  if (!typed && !(state.settings && state.settings.geminiKeySet)) {
+    out.textContent = '✗ The Gemini key field is empty. Paste your key in the "🔑 Gemini API key" field (the FIRST password field, near the top), then click here again.';
+    out.style.color = '#d94b4b';
+    toast('Paste the key in the 🔑 Gemini API key field — not the Pinterest/imgbb fields.', 'err');
+    $('#geminiApiKey').focus();
+    return;
+  }
   out.textContent = 'Testing…';
   const btn = $('#test-ai');
   btn.disabled = true;
   try {
-    // save first so the just-typed key is used
-    await saveSettingsSilent();
+    if (typed) await saveSettingsSilent(); // save the just-typed key
     const r = await api('/api/ai-test');
     if (r.ok) {
       out.textContent = `✓ Key + generation work — model: ${r.chosen} (${r.models.length} models available)`;
@@ -212,7 +220,11 @@ async function testAi() {
     } else if (r.stage === 'generate') {
       out.textContent = `✗ Key is valid, but GENERATION is blocked: ${r.error}`;
       out.style.color = '#d94b4b';
-      toast('Generation blocked — see the reason next to the button. Likely quota/billing.', 'err');
+      toast('Generation blocked — likely quota/billing.', 'err');
+    } else if (/No API key/i.test(r.error || '')) {
+      out.textContent = '✗ Key didn\'t save. Make sure you pasted it in the "🔑 Gemini API key" field (near the top), then click Save settings.';
+      out.style.color = '#d94b4b';
+      toast('Key not saved — check you pasted in the 🔑 Gemini field, then Save settings.', 'err');
     } else {
       out.textContent = `✗ ${r.error}`;
       out.style.color = '#d94b4b';
