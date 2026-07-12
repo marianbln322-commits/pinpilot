@@ -22,6 +22,16 @@ function mediaUrl(pin, reqBaseUrl) {
   return `${base}/uploads/${pin.filename}`;
 }
 
+// Pinterest rejects many pins that share the SAME destination link ("Duplicate
+// Pin link"). We append a unique, stable tracking param per pin so every link
+// is distinct (still opens the same page) — and you get UTM analytics for free.
+function uniqueLink(pin) {
+  if (!pin.link) return '';
+  const tag = String(pin.id || '').replace(/-/g, '').slice(0, 10) || Math.random().toString(36).slice(2, 10);
+  const sep = pin.link.includes('?') ? '&' : '?';
+  return `${pin.link}${sep}utm_source=pinterest&utm_medium=pin&utm_content=${tag}`;
+}
+
 // Pinterest requires ISO format "YYYY-MM-DDTHH:MM:SS" (UTC) or "YYYY-MM-DD".
 // A space separator or missing seconds causes "date not formatted correctly".
 function formatPublishDate(iso) {
@@ -43,7 +53,7 @@ export function pinsToCsv(pins, reqBaseUrl) {
       csvEscape(boardName(pin)),
       '', // Thumbnail (videos only)
       csvEscape(pin.description),
-      csvEscape(pin.link || ''),
+      csvEscape(uniqueLink(pin)),
       csvEscape(formatPublishDate(pin.scheduledAt)),
       csvEscape((pin.keywords || []).join(', ')),
     ];
