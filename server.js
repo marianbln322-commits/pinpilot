@@ -302,9 +302,13 @@ app.post('/api/schedule/clear', (req, res) => {
 app.post('/api/host-images', async (req, res) => {
   const { limit } = req.body || {};
   const settings = getSettings();
-  let selected = getPins().filter(
-    (p) => ['ready', 'scheduled'].includes(p.status) && p.title && !p.hostedUrl
-  );
+  // Re-host onto the currently-selected host (so adding an imgbb key moves
+  // pins off the free host that Pinterest may reject).
+  const targetHost = settings.imgbbApiKey ? 'imgbb' : 'litterbox';
+  const needsHost = (p) =>
+    ['ready', 'scheduled'].includes(p.status) && p.title && (!p.hostedUrl || p.hostedHost !== targetHost);
+
+  let selected = getPins().filter(needsHost);
   if (limit && limit > 0) selected = selected.slice(0, limit);
 
   let hosted = 0, lastError = null;
@@ -313,7 +317,6 @@ app.post('/api/host-images', async (req, res) => {
     try {
       const { url, host } = await hostImage(pin);
       const patch = { hostedUrl: url, hostedHost: host, hostedAt: new Date().toISOString() };
-      // Pinterest requires a landing-page link per pin — backfill if missing.
       if (!pin.link) patch.link = assignLink(linkIdx++);
       updatePin(pin.id, patch);
       hosted++;
@@ -322,10 +325,8 @@ app.post('/api/host-images', async (req, res) => {
       updatePin(pin.id, { hostError: e.message });
     }
   }
-  const remaining = getPins().filter(
-    (p) => ['ready', 'scheduled'].includes(p.status) && p.title && !p.hostedUrl
-  ).length;
-  res.json({ hosted, total: selected.length, remaining, lastError });
+  const remaining = getPins().filter(needsHost).length;
+  res.json({ hosted, total: selected.length, remaining, lastError, host: targetHost });
 });
 
 // --- CSV export ---
