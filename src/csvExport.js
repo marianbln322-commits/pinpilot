@@ -45,16 +45,36 @@ function formatPublishDate(iso) {
   return new Date(iso).toISOString().replace(/\.\d{3}Z$/, ''); // e.g. 2026-07-13T07:00:00
 }
 
+// Pinterest rejects rows that share the same Title ("Multiple rows with the
+// same title"). Make each title unique, staying <= 100 chars.
+function makeUniqueTitle(pin, used) {
+  const base = String(pin.title || 'Pin').trim().slice(0, 100);
+  if (!used.has(base.toLowerCase())) { used.add(base.toLowerCase()); return base; }
+  const kw = pin.keywords && pin.keywords[0]
+    ? pin.keywords[0].replace(/\b\w/g, (c) => c.toUpperCase())
+    : '';
+  const candidates = [];
+  if (kw) candidates.push(`${base}: ${kw}`.slice(0, 100));
+  for (let n = 2; n <= 60; n++) candidates.push(`${base} (${n})`.slice(0, 100));
+  for (const c of candidates) {
+    if (!used.has(c.toLowerCase())) { used.add(c.toLowerCase()); return c; }
+  }
+  const fallback = `${base.slice(0, 90)} ${Math.random().toString(36).slice(2, 6)}`;
+  used.add(fallback.toLowerCase());
+  return fallback;
+}
+
 export function pinsToCsv(pins, reqBaseUrl) {
   const boards = effectiveBoards();
   const boardName = (pin) => pin.boardName || boards.find((b) => b.id === pin.boardId)?.name || '';
 
   const header = ['Title', 'Media URL', 'Pinterest board', 'Thumbnail', 'Description', 'Link', 'Publish date', 'Keywords'];
   const rows = [header.join(',')];
+  const usedTitles = new Set();
 
   for (const pin of pins) {
     const row = [
-      csvEscape(pin.title),
+      csvEscape(makeUniqueTitle(pin, usedTitles)),
       csvEscape(mediaUrl(pin, reqBaseUrl)),
       csvEscape(boardName(pin)),
       '', // Thumbnail (videos only)
