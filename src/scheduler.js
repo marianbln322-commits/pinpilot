@@ -14,7 +14,7 @@ export function buildSchedule() {
 
   const hours = (settings.postingHours && settings.postingHours.length
     ? settings.postingHours
-    : [9, 13, 17, 20]).slice().sort((a, b) => a - b);
+    : [7, 10, 13, 16, 19, 21]).slice().sort((a, b) => a - b);
 
   const perDay = Math.max(1, Number(settings.pinsPerDay) || hours.length);
 
@@ -22,15 +22,27 @@ export function buildSchedule() {
   const start = settings.startDate ? new Date(settings.startDate) : new Date(Date.now() + 24 * 3600 * 1000);
   start.setHours(0, 0, 0, 0);
 
+  // Build `perDay` DISTINCT times, evenly spread across the day window
+  // (from the earliest to the latest posting hour). No two pins share a slot.
+  const startMin = hours[0] * 60;
+  const endMin = Math.min(23 * 60 + 59, hours[hours.length - 1] * 60 + 59);
+  const span = Math.max(1, endMin - startMin);
+  const daySlots = [];
+  const usedMin = new Set();
+  for (let i = 0; i < perDay; i++) {
+    let m = perDay === 1 ? startMin : Math.round(startMin + (i * span) / (perDay - 1));
+    while (usedMin.has(m)) m++; // guarantee every time is unique
+    usedMin.add(m);
+    daySlots.push(m);
+  }
+
   const scheduled = [];
   pins.forEach((pin, i) => {
-    const dayOffset = Math.floor(i / perDay);   // which day
-    const slotInDay = i % perDay;               // which slot that day
-    const hour = hours[slotInDay % hours.length];
-    const extraMin = Math.floor(slotInDay / hours.length) * 7; // separate when > hours/day
+    const dayOffset = Math.floor(i / perDay);
+    const m = daySlots[i % perDay];
     const when = new Date(start);
     when.setDate(start.getDate() + dayOffset);
-    when.setHours(hour, extraMin % 60, 0, 0);
+    when.setHours(Math.floor(m / 60), m % 60, 0, 0);
 
     updatePin(pin.id, { scheduledAt: when.toISOString(), status: 'scheduled' });
     scheduled.push({ id: pin.id, scheduledAt: when.toISOString() });
