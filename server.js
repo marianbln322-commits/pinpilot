@@ -305,8 +305,10 @@ app.post('/api/host-images', async (req, res) => {
   // Re-host onto the currently-selected host (so adding an imgbb key moves
   // pins off the free host that Pinterest may reject).
   const targetHost = settings.imgbbApiKey ? 'imgbb' : 'litterbox';
+  // Needs work if not hosted on the target host yet, OR missing its image hash.
   const needsHost = (p) =>
-    ['ready', 'scheduled'].includes(p.status) && p.title && (!p.hostedUrl || p.hostedHost !== targetHost);
+    ['ready', 'scheduled'].includes(p.status) && p.title &&
+    (!p.hostedUrl || p.hostedHost !== targetHost || !p.imageHash);
 
   let selected = getPins().filter(needsHost);
   if (limit && limit > 0) selected = selected.slice(0, limit);
@@ -315,8 +317,21 @@ app.post('/api/host-images', async (req, res) => {
   let linkIdx = getPins().filter((p) => p.link).length;
   for (const pin of selected) {
     try {
-      const { url, host } = await hostImage(pin);
-      const patch = { hostedUrl: url, hostedHost: host, hostedAt: new Date().toISOString() };
+      const patch = {};
+      // Content hash to detect duplicate images (Pinterest rejects reused images).
+      if (!pin.imageHash) {
+        try {
+          const buf = fs.readFileSync(path.join(config.paths.uploads, pin.filename));
+          patch.imageHash = crypto.createHash('sha1').update(buf).digest('hex');
+        } catch {}
+      }
+      // Only (re)host when not already on the target host.
+      if (!pin.hostedUrl || pin.hostedHost !== targetHost) {
+        const { url, host } = await hostImage(pin);
+        patch.hostedUrl = url;
+        patch.hostedHost = host;
+        patch.hostedAt = new Date().toISOString();
+      }
       if (!pin.link) patch.link = assignLink(linkIdx++);
       updatePin(pin.id, patch);
       hosted++;
@@ -338,6 +353,14 @@ app.get('/api/export.csv', (req, res) => {
   let pins = getPins().filter(
     (p) => ['ready', 'scheduled'].includes(p.status) && p.title && p.hostedUrl && p.link
   );
+  // Skip duplicate images (Pinterest rejects a reused image: "Duplicate Pin image").
+  const seenImg = new Set();
+  pins = pins.filter((p) => {
+    if (!p.imageHash) return true;
+    if (seenImg.has(p.imageHash)) return false;
+    seenImg.add(p.imageHash);
+    return true;
+  });
   if (onlyNew) pins = pins.filter((p) => !p.exportedAt);
   if (limit > 0) pins = pins.slice(0, limit);
   if (mark) {
