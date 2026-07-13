@@ -28,8 +28,14 @@ function mediaUrl(pin, reqBaseUrl) {
 function uniqueLink(pin) {
   if (!pin.link) return '';
   const tag = String(pin.id || '').replace(/-/g, '').slice(0, 10) || Math.random().toString(36).slice(2, 10);
-  const sep = pin.link.includes('?') ? '&' : '?';
-  return `${pin.link}${sep}utm_source=pinterest&utm_medium=pin&utm_content=${tag}`;
+  // Split off any #fragment (e.g. affiliate "#aff=xxx"): the tracking params
+  // must go in the QUERY (before #), otherwise they land inside the fragment,
+  // which Pinterest ignores -> links look identical -> "Duplicate Pin link".
+  const hashIdx = pin.link.indexOf('#');
+  const base = hashIdx === -1 ? pin.link : pin.link.slice(0, hashIdx);
+  const frag = hashIdx === -1 ? '' : pin.link.slice(hashIdx);
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}utm_source=pinterest&utm_medium=pin&utm_content=${tag}${frag}`;
 }
 
 // Pinterest requires ISO format "YYYY-MM-DDTHH:MM:SS" (UTC) or "YYYY-MM-DD".
