@@ -26,5 +26,5 @@ echo "Pornesc PinPilot... se deschide singur in browser."
 echo "Ca sa opresti aplicatia: inchide aceasta fereastra sau apasa Ctrl+C."
 echo
 
-( sleep 3 && open http://localhost:3000 ) &
+( sleep 3 && open http://localhost:3004 ) &
 npm start

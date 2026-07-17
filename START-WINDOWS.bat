@@ -26,7 +26,7 @@ echo Pornesc PinPilot... se deschide singur in browser.
 echo Ca sa opresti aplicatia: inchide aceasta fereastra.
 echo.
 
-start "" http://localhost:3000
+start "" http://localhost:3004
 call npm start
 
 pause

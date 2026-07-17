@@ -11,7 +11,7 @@ Built as a lightweight, self-hosted alternative to paid pin schedulers. Works wi
 1. Install **Node.js** (LTS) from <https://nodejs.org>.
 2. **Windows:** double-click **`START-WINDOWS.bat`**
    **Mac:** double-click **`START-MAC.command`** (first time: right-click → Open).
-3. The app opens automatically at <http://localhost:3000>.
+3. The app opens automatically at <http://localhost:3004>.
 
 The launcher installs everything on first run and starts the app. To stop it, close the window.
 
@@ -22,7 +22,7 @@ The launcher installs everything on first run and starts the app. To stop it, cl
 ```bash
 npm install
 npm start
-# open http://localhost:3000
+# open http://localhost:3004
 ```
 
 It runs immediately in **template mode** (no keys needed).

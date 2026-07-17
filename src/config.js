@@ -31,7 +31,7 @@ function loadEnv() {
 loadEnv();
 
 export const config = {
-  port: Number(process.env.PORT) || 3000,
+  port: 3004,
 
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
@@ -46,7 +46,7 @@ export const config = {
     appSecret: process.env.PINTEREST_APP_SECRET || '',
     redirectUri:
       process.env.PINTEREST_REDIRECT_URI ||
-      'http://localhost:3000/auth/pinterest/callback',
+      'http://localhost:3004/auth/pinterest/callback',
     apiBase: (
       process.env.PINTEREST_API_BASE || 'https://api.pinterest.com/v5'
     ).replace(/\/$/, ''),
